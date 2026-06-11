@@ -1,0 +1,70 @@
+{
+  "NAIL_SERVICES": [
+    {
+      "id": "express",
+      "label": "Quick & Polished",
+      "name": "Express Manicure",
+      "desc": "A swift, efficient manicure with file and shape, cuticle tidy, and gel polish application. Perfect for a refresh.",
+      "duration": "~30 min",
+      "durationMin": 30,
+      "junior": 35,
+      "senior": 42
+    },
+    {
+      "id": "classic",
+      "label": "The Everyday Essential",
+      "name": "Classic Manicure",
+      "desc": "Thorough nail prep, cuticle care, hand massage, and full gel polish application. Our most loved everyday service.",
+      "duration": "~45 min",
+      "durationMin": 45,
+      "junior": 48,
+      "senior": 58
+    },
+    {
+      "id": "structured",
+      "label": "Built for Weak Nails",
+      "name": "Structured Classic Manicure",
+      "desc": "Perfect choice for people with weak nails and minimal growth. Includes gel polish, cuticle care, nail prep, and strengthening overlay.",
+      "duration": "~60 min",
+      "durationMin": 60,
+      "junior": 61,
+      "senior": 72,
+      "popular": true
+    },
+    {
+      "id": "apres",
+      "label": "Full Sculpted Extensions",
+      "name": "Après Gel X Extensions",
+      "desc": "Premium soft gel extension system applied over natural nails. Zero damage, instant length, and a flawless finish.",
+      "duration": "~90 min",
+      "durationMin": 90,
+      "junior": 85,
+      "senior": 108,
+      "popular": true
+    }
+  ],
+  "COOL_SERVICES": [
+    {
+      "id": "coolsculpting",
+      "name": "CoolSculpting Fat Freeze",
+      "desc": "Clinically-proven cryolipolysis to target stubborn fat — no surgery, no downtime. Opening offer, limited time.",
+      "duration": "~60 min",
+      "durationMin": 60,
+      "junior": 40,
+      "senior": 40
+    }
+  ],
+  "NAIL_ART": [
+    { "id": "none", "name": "No design (plain colour only)", "price": 0, "durationMin": 0 },
+    { "id": "tier1", "name": "Tier 1 — Simple", "sub": "Solid colour accents, minimal line art, single-nail detail.", "price": 12, "time": "+35 mins", "durationMin": 35 },
+    { "id": "tier2", "name": "Tier 2 — Layered", "sub": "Ombré, chrome, florals, geometric patterns, foils.", "price": 25, "time": "+45 mins", "durationMin": 45 },
+    { "id": "tier3", "name": "Tier 3 — Intricate", "sub": "3D elements, mosaic nails, character art, bespoke hand-painted.", "price": 48, "time": "+60 mins", "durationMin": 60 }
+  ],
+  "REMOVAL": [
+    { "id": "none", "name": "No removal needed", "price": 0, "durationMin": 0 },
+    { "id": "self-gel", "name": "Gel / Hard Gel", "sub": "Done by every1luvs", "price": 8, "time": "+30 mins", "durationMin": 30 },
+    { "id": "self-ext", "name": "Extensions", "sub": "Done by every1luvs", "price": 10, "time": "+30 mins", "durationMin": 30 },
+    { "id": "other-gel", "name": "Gel / Hard Gel", "sub": "Done by others", "price": 22, "time": "+30 mins", "durationMin": 30 },
+    { "id": "other-ext", "name": "Extensions", "sub": "Done by others", "price": 28, "time": "+30 mins", "durationMin": 30 }
+  ]
+}

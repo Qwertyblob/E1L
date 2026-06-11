@@ -1,0 +1,22 @@
+# Secrets / local environment — never commit. Use .env.example as the template.
+.env
+.env.*
+!.env.example
+
+# OS / editor cruft
+.DS_Store
+.idea/
+*.iml
+
+# Build output
+target/
+node_modules/
+client/build/
+web/build/
+
+# Local AI/dev tooling state — machine-specific, not part of the app
+.claude/
+.agents/
+.fallow/
+skills-lock.json
+.github/modernize/

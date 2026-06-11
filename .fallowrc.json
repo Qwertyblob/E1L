@@ -1,0 +1,6 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "ignorePatterns": ["**/target/**"],
+  "entry": ["**/*.test.js", "**/*.test.jsx"],
+  "dynamicallyLoaded": ["**/__mocks__/**"]
+}

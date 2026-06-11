@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend tests (Maven)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: every1luvs/pom.xml
+      # The Maven build copies client/src/services.json onto the classpath
+      # (copy-shared-catalog), so the checkout must include the whole repo root.
+      - name: Run tests
+        run: ./mvnw -B test
+        working-directory: every1luvs
+
+  client:
+    name: Client tests + build (CRA)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm test -- --watchAll=false
+        env:
+          CI: 'true'
+      # Same flag the web/Dockerfile build uses, so CI verifies the exact prod bundle
+      # (no inline runtime chunk; required by the strict script-src CSP in nginx).
+      - name: Production build
+        run: npm run build
+        env:
+          INLINE_RUNTIME_CHUNK: 'false'

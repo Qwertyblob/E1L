@@ -1,0 +1,15 @@
+# Build context is the repo root; keep it lean and never ship secrets or local build output.
+**/node_modules
+**/target
+client/build
+**/.git
+**/.idea
+**/.DS_Store
+**/*.iml
+.fallow
+.claude
+.agents
+# Secrets: the app gets config via env_file at runtime, not baked into images.
+.env
+**/.env
+!.env.example

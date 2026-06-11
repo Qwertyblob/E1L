@@ -1,0 +1,87 @@
+# every1luvs production stack — Cloudflare Tunnel ingress, segmented networks, no published ports.
+# Deploy:  docker compose up -d --build      (after creating .env from .env.example)
+
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: every1luvs
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - data           # reachable only by `app`, never by web/cloudflared
+    healthcheck:
+      # `app` waits for this to pass, so Spring Boot never boots into a connection-refused crash.
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d every1luvs"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .                       # repo root: Maven build needs ../client/src/services.json
+      dockerfile: every1luvs/Dockerfile
+    restart: unless-stopped
+    env_file: .env                     # DATABASE_URL=jdbc:postgresql://db:5432/every1luvs, AUTH_*, MAIL_*, etc.
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - appnet                         # reached by web (for /api)
+      - data                           # reaches db
+    expose:
+      - "8080"                         # internal only; no host port published
+    healthcheck:
+      # Catches a hung (not crashed) JVM, which `restart: unless-stopped` alone never
+      # would. Actuator exposes only /actuator/health (see application.properties).
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s                # JVM + schema init headroom on first boot
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy     # don't serve the SPA until /api can answer
+    networks:
+      edge:
+        ipv4_address: 172.20.0.10      # static edge IP; the tunnel targets http://172.20.0.10:80
+      appnet: {}                       # to reach the app upstream
+    expose:
+      - "80"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - web
+    networks:
+      - edge                           # only the edge network; cannot reach app or db
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+  appnet:
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+  data:
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+
+volumes:
+  db_data:
