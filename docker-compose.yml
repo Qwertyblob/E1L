@@ -1,10 +1,19 @@
 # every1luvs production stack — Cloudflare Tunnel ingress, segmented networks, no published ports.
 # Deploy:  docker compose up -d --build      (after creating .env from .env.example)
 
+# Cap container logs (default json-file driver grows unbounded and eventually fills the
+# disk on a small host). 10 MB x 5 files = 50 MB ceiling per service.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
     image: postgres:17
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: every1luvs
       POSTGRES_USER: ${DB_USERNAME}
@@ -25,6 +34,7 @@ services:
       context: .                       # repo root: Maven build needs ../client/src/services.json
       dockerfile: every1luvs/Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     env_file: .env                     # DATABASE_URL=jdbc:postgresql://db:5432/every1luvs, AUTH_*, MAIL_*, etc.
     depends_on:
       db:
@@ -48,6 +58,7 @@ services:
       context: .
       dockerfile: web/Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       app:
         condition: service_healthy     # don't serve the SPA until /api can answer
@@ -61,6 +72,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
+    logging: *default-logging
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN}

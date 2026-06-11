@@ -9,6 +9,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 		"spring.datasource.password=",
 		"spring.jpa.hibernate.ddl-auto=create-drop",
 		"spring.sql.init.mode=never",
+		// Migrations are Postgres-only; H2 tests build their schema from the entities.
+		"spring.flyway.enabled=false",
 		"app.auth.token-secret=test-secret-that-is-at-least-32-chars!!"
 })
 class Every1luvsApplicationTests {
