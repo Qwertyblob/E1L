@@ -318,14 +318,29 @@ class SlotServiceTest {
     @Test
     void listAllSlots_returnsMappedPage() {
         Pageable pageable = PageRequest.of(0, 50);
-        when(slotRepository.findAllByOrderByStartTimeAsc(pageable))
+        when(slotRepository.findByArchivedAtIsNullOrderByStartTimeAsc(pageable))
                 .thenReturn(new PageImpl<>(List.of(savedSlot(3, 1)), pageable, 1));
 
         Page<SlotResponse> result = slotService.listAllSlots(pageable);
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).available()).isTrue();
+        assertThat(result.getContent().get(0).archived()).isFalse();
         assertThat(result.getTotalElements()).isEqualTo(1);
+    }
+
+    @Test
+    void listArchivedSlots_returnsArchivedPageWithFlagSet() {
+        Pageable pageable = PageRequest.of(0, 50);
+        SlotEntity archived = savedSlot(3, 1);
+        archived.setArchivedAt(Instant.now());
+        when(slotRepository.findByArchivedAtIsNotNullOrderByStartTimeDesc(pageable))
+                .thenReturn(new PageImpl<>(List.of(archived), pageable, 1));
+
+        Page<SlotResponse> result = slotService.listArchivedSlots(pageable);
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).archived()).isTrue();
     }
 
     @Test

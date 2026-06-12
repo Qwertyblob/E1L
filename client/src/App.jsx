@@ -160,6 +160,12 @@ function App() {
 
   const [adminSlots, setAdminSlots] = useState([]);
   const [adminSlotsError, setAdminSlotsError] = useState('');
+  // Archived slots are fetched on demand (when the admin opens the Archived tab),
+  // never alongside the regular slot list — the archive only grows over time.
+  const [archivedSlots, setArchivedSlots] = useState([]);
+  const [archivedSlotsError, setArchivedSlotsError] = useState('');
+  const [isLoadingArchivedSlots, setIsLoadingArchivedSlots] = useState(false);
+  const [archivedSlotsLoaded, setArchivedSlotsLoaded] = useState(false);
   const [isLoadingAdminSlots, setIsLoadingAdminSlots] = useState(false);
 
   const [adminBookings, setAdminBookings] = useState([]);
@@ -561,10 +567,27 @@ function App() {
     }
   }
 
+  async function loadArchivedSlots() {
+    setArchivedSlotsError('');
+    setIsLoadingArchivedSlots(true);
+    try {
+      const data = await apiRequest('/api/admin/slots/archived?page=0&size=1000');
+      setArchivedSlots(data.content);
+      setArchivedSlotsLoaded(true);
+    } catch (error) {
+      setArchivedSlotsError(error.message);
+      setArchivedSlots([]);
+    } finally {
+      setIsLoadingArchivedSlots(false);
+    }
+  }
+
   async function handleDeleteSlot(slotId) {
     try {
       await apiRequest(`/api/admin/slots/${slotId}`, { method: 'DELETE' });
       loadAdminSlots();
+      // Keep the archived tab in sync too, but only if it has ever been fetched.
+      if (archivedSlotsLoaded) loadArchivedSlots();
     } catch (error) {
       setAdminSlotsError(error.message);
     }
@@ -743,6 +766,11 @@ function App() {
         loadAdminSlots={loadAdminSlots}
         adminSlotsError={adminSlotsError}
         adminSlots={adminSlots}
+        isLoadingArchivedSlots={isLoadingArchivedSlots}
+        loadArchivedSlots={loadArchivedSlots}
+        archivedSlotsError={archivedSlotsError}
+        archivedSlots={archivedSlots}
+        archivedSlotsLoaded={archivedSlotsLoaded}
         handleDeleteSlot={handleDeleteSlot}
       />
     );

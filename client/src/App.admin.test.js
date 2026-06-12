@@ -82,20 +82,29 @@ describe('App admin — schedule view loads data', () => {
     expect(await screen.findByText('Morning Mani')).toBeInTheDocument();
   });
 
-  test('archived slots stay listed with an Archived badge', async () => {
+  test('archived slots load on demand into their own tab', async () => {
     setupFetch([
-      { method: 'GET', path: '/api/slots', status: 200, body: page([
+      { method: 'GET', path: '/api/admin/slots/archived', status: 200, body: page([
         { id: 101, title: 'Old Mani', startTime: '2025-01-15T09:00:00', endTime: '2025-01-15T10:00:00', capacity: 1, bookedCount: 1, archived: true, createdAt: '2025-01-01T08:00:00Z' },
+      ]) },
+      { method: 'GET', path: '/api/slots', status: 200, body: page([
         { id: 102, title: 'Fresh Mani', startTime: `${PICKED_DATE}T09:00:00`, endTime: `${PICKED_DATE}T10:00:00`, capacity: 1, bookedCount: 0, archived: false, createdAt: `${PICKED_DATE}T08:00:00Z` },
       ]) },
     ]);
     render(<App />);
     await gotoSchedule();
 
-    // Both slots render (archived ones are not hidden), but only the archived one is badged.
-    expect(await screen.findByText('Old Mani')).toBeInTheDocument();
+    // The archive is never fetched alongside the regular slot list…
     expect(await screen.findByText('Fresh Mani')).toBeInTheDocument();
-    expect(screen.getAllByText('Archived')).toHaveLength(1);
+    expect(callsTo('/api/admin/slots/archived')).toHaveLength(0);
+
+    // …only when the Archived tab is opened.
+    await userEvent.click(screen.getByRole('button', { name: 'Archived' }));
+    expect(await screen.findByText('Old Mani')).toBeInTheDocument();
+    expect(callsTo('/api/admin/slots/archived')).toHaveLength(1);
+    expect(document.querySelector('.archived-pill')).toHaveTextContent('Archived');
+    // The archived tab shows only archived slots.
+    expect(screen.queryByText('Fresh Mani')).not.toBeInTheDocument();
   });
 });
 

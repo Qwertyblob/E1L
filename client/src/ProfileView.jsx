@@ -775,6 +775,11 @@ function ManageSlotsPanel({
   loadAdminSlots,
   adminSlotsError,
   adminSlots,
+  isLoadingArchivedSlots,
+  loadArchivedSlots,
+  archivedSlotsError,
+  archivedSlots,
+  archivedSlotsLoaded,
   formatDate,
   formatTimestamp,
   handleDeleteSlot,
@@ -796,8 +801,11 @@ function ManageSlotsPanel({
     return acc;
   }, {});
 
-  const listFiltered = adminSlots.filter((slot) =>
-    slotFilter === 'all' ? true : slotFilter === 'upcoming' ? isUpcoming(slot) : !isUpcoming(slot));
+  // The Archived tab renders its own on-demand dataset; the other tabs slice adminSlots.
+  const listFiltered = slotFilter === 'archived'
+    ? archivedSlots
+    : adminSlots.filter((slot) =>
+      slotFilter === 'all' ? true : slotFilter === 'upcoming' ? isUpcoming(slot) : !isUpcoming(slot));
 
   const visibleSlots = slotView === 'calendar'
     ? (slotCal.selected ? (slotsByDate[slotCal.selected] || []) : adminSlots)
@@ -812,12 +820,18 @@ function ManageSlotsPanel({
             <button className={slotView === 'list' ? 'active' : ''} onClick={() => setSlotView('list')} type="button">List</button>
             <button className={slotView === 'calendar' ? 'active' : ''} onClick={() => setSlotView('calendar')} type="button">Calendar</button>
           </div>
-          <button className="primary-button compact" disabled={isLoadingAdminSlots} onClick={() => loadAdminSlots(0)} type="button">
-            {isLoadingAdminSlots ? 'Loading' : 'Refresh'}
+          <button
+            className="primary-button compact"
+            disabled={isLoadingAdminSlots || isLoadingArchivedSlots}
+            onClick={() => (slotView === 'list' && slotFilter === 'archived' ? loadArchivedSlots() : loadAdminSlots(0))}
+            type="button"
+          >
+            {isLoadingAdminSlots || isLoadingArchivedSlots ? 'Loading' : 'Refresh'}
           </button>
         </div>
       </div>
       {adminSlotsError && <p className="form-message error">{adminSlotsError}</p>}
+      {slotFilter === 'archived' && archivedSlotsError && <p className="form-message error">{archivedSlotsError}</p>}
 
       {slotView === 'list' && (
         <div className="profile-tabs" role="tablist">
@@ -825,20 +839,28 @@ function ManageSlotsPanel({
             { id: 'upcoming', label: 'Upcoming' },
             { id: 'past', label: 'Past' },
             { id: 'all', label: 'All' },
+            { id: 'archived', label: 'Archived' },
           ].map((f) => {
-            const count = f.id === 'all'
-              ? adminSlots.length
-              : f.id === 'upcoming'
-                ? adminSlots.filter(isUpcoming).length
-                : adminSlots.filter((s) => !isUpcoming(s)).length;
+            // Archived shows no count until its data has actually been fetched.
+            const count = f.id === 'archived'
+              ? (archivedSlotsLoaded ? archivedSlots.length : null)
+              : f.id === 'all'
+                ? adminSlots.length
+                : f.id === 'upcoming'
+                  ? adminSlots.filter(isUpcoming).length
+                  : adminSlots.filter((s) => !isUpcoming(s)).length;
             return (
               <button
                 className={`profile-tab${slotFilter === f.id ? ' profile-tab--active' : ''}`}
                 key={f.id}
-                onClick={() => setSlotFilter(f.id)}
+                onClick={() => {
+                  setSlotFilter(f.id);
+                  // The archive can be large, so it's only fetched when this tab is opened.
+                  if (f.id === 'archived' && !archivedSlotsLoaded) loadArchivedSlots();
+                }}
                 type="button"
               >
-                {f.label} ({count})
+                {f.label}{count != null ? ` (${count})` : ''}
               </button>
             );
           })}
@@ -880,7 +902,11 @@ function ManageSlotsPanel({
       )}
 
       <div className="user-list">
-        {visibleSlots.length === 0 && !adminSlotsError && (
+        {slotView === 'list' && slotFilter === 'archived' && isLoadingArchivedSlots && (
+          <p className="empty-state">Loading archived slots&hellip;</p>
+        )}
+        {visibleSlots.length === 0 && !adminSlotsError
+          && !(slotFilter === 'archived' && (isLoadingArchivedSlots || archivedSlotsError)) && (
           <p className="empty-state">{slotView === 'calendar' ? 'No slots.' : `No ${slotFilter} slots.`}</p>
         )}
         {visibleSlots.map((slot) => (
@@ -956,6 +982,11 @@ function ScheduleTab(props) {
         loadAdminSlots={props.loadAdminSlots}
         adminSlotsError={props.adminSlotsError}
         adminSlots={props.adminSlots}
+        isLoadingArchivedSlots={props.isLoadingArchivedSlots}
+        loadArchivedSlots={props.loadArchivedSlots}
+        archivedSlotsError={props.archivedSlotsError}
+        archivedSlots={props.archivedSlots}
+        archivedSlotsLoaded={props.archivedSlotsLoaded}
         formatDate={props.formatDate}
         formatTimestamp={props.formatTimestamp}
         handleDeleteSlot={props.handleDeleteSlot}
@@ -1031,6 +1062,11 @@ function ProfileView({
   loadAdminSlots,
   adminSlotsError,
   adminSlots,
+  isLoadingArchivedSlots,
+  loadArchivedSlots,
+  archivedSlotsError,
+  archivedSlots,
+  archivedSlotsLoaded,
   handleDeleteSlot,
 }) {
   return (
@@ -1162,6 +1198,11 @@ function ProfileView({
             loadAdminSlots={loadAdminSlots}
             adminSlotsError={adminSlotsError}
             adminSlots={adminSlots}
+            isLoadingArchivedSlots={isLoadingArchivedSlots}
+            loadArchivedSlots={loadArchivedSlots}
+            archivedSlotsError={archivedSlotsError}
+            archivedSlots={archivedSlots}
+            archivedSlotsLoaded={archivedSlotsLoaded}
             handleDeleteSlot={handleDeleteSlot}
           />
         )}

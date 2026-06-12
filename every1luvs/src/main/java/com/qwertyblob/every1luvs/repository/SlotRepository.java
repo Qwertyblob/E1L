@@ -13,9 +13,13 @@ import java.util.List;
 
 public interface SlotRepository extends JpaRepository<SlotEntity, Long> {
 
-    // Admin listing includes archived slots — the frontend shows them with an
-    // "Archived" badge instead of hiding them (unlike bookings, which are hidden).
-    Page<SlotEntity> findAllByOrderByStartTimeAsc(Pageable pageable);
+    // Admin listing returns active slots only; archived slots live in their own
+    // paginated listing below, fetched on demand so the (ever-growing) archive
+    // isn't shipped with every slot-list request.
+    Page<SlotEntity> findByArchivedAtIsNullOrderByStartTimeAsc(Pageable pageable);
+
+    // Newest-ended first: the recently archived slots are the ones admins look for.
+    Page<SlotEntity> findByArchivedAtIsNotNullOrderByStartTimeDesc(Pageable pageable);
 
     @Query("SELECT s FROM SlotEntity s WHERE s.archivedAt IS NULL AND s.bookedCount < s.capacity "
             + "AND s.startTime >= :earliest ORDER BY s.startTime ASC")
