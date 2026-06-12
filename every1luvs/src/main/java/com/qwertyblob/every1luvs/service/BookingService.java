@@ -288,7 +288,7 @@ public class BookingService {
 
     @Transactional
     public BookingResponse adminCancelBooking(Long bookingId) {
-        BookingEntity booking = bookingRepository.findByIdAndStatus(bookingId, "BOOKED")
+        BookingEntity booking = bookingRepository.findByIdAndStatusAndArchivedAtIsNull(bookingId, "BOOKED")
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Active booking not found."));
 
@@ -307,7 +307,7 @@ public class BookingService {
 
     @Transactional
     public BookingResponse adminCompleteBooking(Long bookingId) {
-        BookingEntity booking = bookingRepository.findByIdAndStatus(bookingId, "BOOKED")
+        BookingEntity booking = bookingRepository.findByIdAndStatusAndArchivedAtIsNull(bookingId, "BOOKED")
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Active booking not found."));
 

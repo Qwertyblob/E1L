@@ -32,11 +32,16 @@ public interface BookingRepository extends JpaRepository<BookingEntity, Long> {
     @Query("SELECT b FROM BookingEntity b WHERE b.id = :id AND b.userId = :userId AND b.status = 'BOOKED'")
     Optional<BookingEntity> findActiveBookingByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId);
 
-    Optional<BookingEntity> findByIdAndStatus(Long id, String status);
+    // Archived bookings appear deleted everywhere in the UI, so admin cancel/complete
+    // must not be able to reach them by ID either.
+    Optional<BookingEntity> findByIdAndStatusAndArchivedAtIsNull(Long id, String status);
 
     // A slot can't be deleted while a non-cancelled (active or completed) booking still
     // points at it; cancelled bookings are terminal and get cleaned up with the slot.
-    @Query("SELECT COUNT(b) > 0 FROM BookingEntity b WHERE b.slotId = :slotId AND b.status <> 'CANCELLED'")
+    // Archived bookings don't count — they're invisible in the UI, and letting them
+    // block deletion would make archived slots permanently undeletable.
+    @Query("SELECT COUNT(b) > 0 FROM BookingEntity b WHERE b.slotId = :slotId "
+            + "AND b.status <> 'CANCELLED' AND b.archivedAt IS NULL")
     boolean existsNonCancelledBookingBySlotId(@Param("slotId") Long slotId);
 
     void deleteBySlotId(Long slotId);
