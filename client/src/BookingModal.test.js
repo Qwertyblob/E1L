@@ -157,12 +157,19 @@ describe('BookingModal — confirm flow', () => {
     await clickContinue(); // step 5
   }
 
+  // Guests must verify their email: request the code, then type it in.
+  async function verifyGuestEmail(code = '123456') {
+    await userEvent.click(screen.getByRole('button', { name: 'Send verification code' }));
+    await userEvent.type(await screen.findByLabelText(/Verification code/), code);
+  }
+
   test('confirm resolves the matching slot id and submits the expected payload', async () => {
     const { onConfirm } = renderModal();
     await driveToConfirm();
 
     await userEvent.type(screen.getByLabelText(/Full Name/), 'Alice');
-    await userEvent.type(screen.getByLabelText(/Email/), 'alice@example.com');
+    await userEvent.type(screen.getByLabelText(/^Email/), 'alice@example.com');
+    await verifyGuestEmail();
     await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
 
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
@@ -175,22 +182,44 @@ describe('BookingModal — confirm flow', () => {
         technicianLevel: 'junior',
         nailArtId: 'none',
         removalId: 'none',
+        otp: '123456',
         time: '10:00',
         date: DATE_STR,
       }),
     );
+    // The OTP request hit the public endpoint with the typed email.
+    const otpCall = global.fetch.mock.calls.find(([url]) => String(url).includes('/api/bookings/request-otp'));
+    expect(otpCall).toBeTruthy();
+    expect(JSON.parse(otpCall[1].body)).toEqual({ email: 'alice@example.com' });
     expect(await screen.findByText("You're booked!")).toBeInTheDocument();
   });
 
-  test('confirm is gated until name and email are filled', async () => {
+  test('guest confirm is gated until name, email AND the emailed code are filled', async () => {
     renderModal();
     await driveToConfirm();
 
     expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeDisabled();
     await userEvent.type(screen.getByLabelText(/Full Name/), 'Alice');
     expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeDisabled();
-    await userEvent.type(screen.getByLabelText(/Email/), 'alice@example.com');
+    await userEvent.type(screen.getByLabelText(/^Email/), 'alice@example.com');
+    // Name + email alone are no longer enough for a guest…
+    expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeDisabled();
+    await verifyGuestEmail();
     expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeEnabled();
+  });
+
+  test('editing the email after requesting a code voids the entered code', async () => {
+    renderModal();
+    await driveToConfirm();
+
+    await userEvent.type(screen.getByLabelText(/Full Name/), 'Alice');
+    await userEvent.type(screen.getByLabelText(/^Email/), 'alice@example.com');
+    await verifyGuestEmail();
+    expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeEnabled();
+
+    await userEvent.type(screen.getByLabelText(/^Email/), 'x'); // email changed
+    expect(screen.queryByLabelText(/Verification code/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeDisabled();
   });
 
   test('surfaces the error message when onConfirm rejects', async () => {
@@ -199,19 +228,25 @@ describe('BookingModal — confirm flow', () => {
     await driveToConfirm();
 
     await userEvent.type(screen.getByLabelText(/Full Name/), 'Alice');
-    await userEvent.type(screen.getByLabelText(/Email/), 'alice@example.com');
+    await userEvent.type(screen.getByLabelText(/^Email/), 'alice@example.com');
+    await verifyGuestEmail();
     await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
 
     expect(await screen.findByText('Slot already taken.')).toBeInTheDocument();
     expect(screen.queryByText("You're booked!")).not.toBeInTheDocument();
   });
 
-  test('prefills name and email from currentUser', async () => {
-    renderModal({ currentUser: { name: 'Bob', email: 'bob@example.com' } });
+  test('logged-in users skip email verification entirely', async () => {
+    const { onConfirm } = renderModal({ currentUser: { name: 'Bob', email: 'bob@example.com' } });
     await driveToConfirm();
 
     expect(screen.getByLabelText(/Full Name/)).toHaveValue('Bob');
-    expect(screen.getByLabelText(/Email/)).toHaveValue('bob@example.com');
+    expect(screen.getByLabelText(/^Email/)).toHaveValue('bob@example.com');
+    expect(screen.queryByRole('button', { name: /verification code/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeEnabled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ otp: null })));
   });
 });
 

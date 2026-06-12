@@ -276,7 +276,10 @@ function TermsStep({ agreed, setAgreed }) {
 }
 
 // Step 5 — Details & Confirm
-function DetailsStep({ service, techLabel, date, time, total, deposit, form, updateForm, bookingError }) {
+function DetailsStep({
+  service, techLabel, date, time, total, deposit, form, updateForm, bookingError,
+  isGuest, otp, setOtp, otpRequested, otpSending, otpNotice, requestOtp,
+}) {
   return (
     <>
       <BookingSummary service={service} techLabel={techLabel} date={date} time={time} total={total} />
@@ -291,6 +294,32 @@ function DetailsStep({ service, techLabel, date, time, total, deposit, form, upd
         <span>Email *</span>
         <input name="email" onChange={updateForm} placeholder="your@email.com" type="email" value={form.email} />
       </label>
+      {isGuest && (
+        <div className="bk-verify">
+          <button
+            className="bk-btn bk-btn--ghost bk-verify-send"
+            disabled={otpSending || !form.email.trim()}
+            onClick={requestOtp}
+            type="button"
+          >
+            {otpSending ? 'Sending…' : otpRequested ? 'Resend code' : 'Send verification code'}
+          </button>
+          {otpNotice && <p className="bk-verify-notice">{otpNotice}</p>}
+          {otpRequested && (
+            <label className="bk-field">
+              <span>Verification code *</span>
+              <input
+                inputMode="numeric"
+                maxLength={6}
+                onChange={(e) => setOtp(e.target.value)}
+                placeholder="6-digit code from your email"
+                type="text"
+                value={otp}
+              />
+            </label>
+          )}
+        </div>
+      )}
       <label className="bk-field">
         <span>Phone</span>
         <input name="phone" onChange={updateForm} placeholder="+65 9123 4567" type="tel" value={form.phone} />
@@ -358,6 +387,15 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   const [submitting, setSubmitting] = useState(false);
   const [bookingError, setBookingError] = useState('');
 
+  // Guests must verify their email with a one-time code before the booking is
+  // accepted (the server enforces it; see /api/bookings/request-otp). Logged-in
+  // users are already verified, so the whole block is skipped for them.
+  const isGuest = !currentUser;
+  const [otp, setOtp] = useState('');
+  const [otpRequested, setOtpRequested] = useState(false);
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpNotice, setOtpNotice] = useState('');
+
   const dialogRef = useFocusTrap(true, onClose);
 
   useEffect(() => {
@@ -414,7 +452,10 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     if (step === 0) return !!service;
     if (step === 3) return !!date && !!time;
     if (step === 4) return agreed;
-    if (step === 5) return form.fullName.trim() && form.email.trim();
+    if (step === 5) {
+      return form.fullName.trim() && form.email.trim()
+        && (!isGuest || /^\d{6}$/.test(otp.trim()));
+    }
     return true;
   })();
 
@@ -443,7 +484,36 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   }
 
   function updateForm(e) {
-    setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setForm((f) => ({ ...f, [name]: value }));
+    // A code is bound to the email it was sent to, so editing the email voids it.
+    if (name === 'email' && (otpRequested || otp)) {
+      setOtp('');
+      setOtpRequested(false);
+      setOtpNotice('');
+    }
+  }
+
+  async function requestOtp() {
+    if (!form.email.trim() || otpSending) return;
+    setOtpNotice('');
+    setOtpSending(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/bookings/request-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email.trim() }),
+      });
+      let data = null;
+      try { data = await res.json(); } catch { /* non-JSON body is fine */ }
+      if (!res.ok) throw new Error(data?.message || 'Could not send the code. Please try again.');
+      setOtpRequested(true);
+      setOtpNotice('Code sent — check your inbox (it expires in 10 minutes).');
+    } catch (err) {
+      setOtpNotice(err?.message || 'Could not send the code. Please try again.');
+    } finally {
+      setOtpSending(false);
+    }
   }
 
   function resolveSlotId() {
@@ -477,6 +547,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
         technicianLevel: technician,
         nailArtId: nailArt,
         removalId: removal,
+        otp: isGuest ? otp.trim() : null,
         date,
         time,
       });
@@ -555,6 +626,13 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
                   form={form}
                   updateForm={updateForm}
                   bookingError={bookingError}
+                  isGuest={isGuest}
+                  otp={otp}
+                  setOtp={setOtp}
+                  otpRequested={otpRequested}
+                  otpSending={otpSending}
+                  otpNotice={otpNotice}
+                  requestOtp={requestOtp}
                 />,
               ][step]}
             </div>

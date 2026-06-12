@@ -2,6 +2,8 @@ package com.qwertyblob.every1luvs.controller;
 
 import com.qwertyblob.every1luvs.dto.BookingResponse;
 import com.qwertyblob.every1luvs.dto.CreateBookingRequest;
+import com.qwertyblob.every1luvs.dto.GuestOtpRequest;
+import com.qwertyblob.every1luvs.dto.MessageResponse;
 import com.qwertyblob.every1luvs.dto.PageResponse;
 import com.qwertyblob.every1luvs.security.ClientIpResolver;
 import com.qwertyblob.every1luvs.service.BookingMailService;
@@ -40,8 +42,19 @@ public class BookingController {
         this.clientIpResolver = clientIpResolver;
     }
 
+    // Public, CSRF-exempt: emails a one-time code the guest must echo back when booking,
+    // so a seat can only be consumed by someone who controls the contact inbox.
+    // Heavily rate-limited (per email + per IP) in the service because it sends mail.
+    @PostMapping("/bookings/request-otp")
+    public MessageResponse requestGuestOtp(@RequestBody GuestOtpRequest request, HttpServletRequest httpRequest) {
+        String email = request != null ? request.email() : null;
+        bookingService.requestGuestOtp(email, clientIp(httpRequest));
+        return new MessageResponse("If the email is valid, a verification code has been sent.", email);
+    }
+
     // Public, CSRF-exempt guest booking. It is never attributed to a logged-in user, so a
-    // forged cross-site request can at worst create an IP-rate-limited guest booking.
+    // forged cross-site request can at worst create an IP-rate-limited guest booking —
+    // and the seat is only consumed with a valid emailed OTP (see requestGuestOtp above).
     @PostMapping("/bookings")
     public ResponseEntity<BookingResponse> createGuestBooking(
             @RequestBody CreateBookingRequest request,

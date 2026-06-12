@@ -395,3 +395,18 @@
   .bk-header, .bk-body, .bk-footer { padding-left: 20px; padding-right: 20px; }
   .bk-cat-toggle { grid-template-columns: 1fr; }
 }
+
+/* ── Guest email verification (details step) ─────────────────────────────────── */
+.bk-verify {
+  margin: 2px 0 6px;
+}
+
+.bk-verify-send {
+  width: 100%;
+}
+
+.bk-verify-notice {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+  color: #6b5b4f;
+}

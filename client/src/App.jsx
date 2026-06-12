@@ -98,12 +98,15 @@ function blankToNull(value) {
   return value || null;
 }
 
-function buildBookingPayload({ slotId, form, serviceId, technicianLevel, nailArtId, removalId }) {
+function buildBookingPayload({ slotId, form, serviceId, technicianLevel, nailArtId, removalId, otp }) {
   const f = form || {};
   return {
     slotId,
     customerName: blankToNull(f.fullName),
     customerEmail: blankToNull(f.email),
+    // Guest bookings only: the emailed verification code (see BookingModal); null for
+    // logged-in bookings, which the server identifies via the auth cookie instead.
+    otp: blankToNull(otp),
     phone: blankToNull(f.phone),
     instagram: blankToNull(f.instagram),
     notes: blankToNull(f.notes),
@@ -561,13 +564,29 @@ function App() {
     }
   }
 
+  // The schedule/manage-slots calendars group and filter the whole active set
+  // client-side, so pull EVERY page rather than one fixed-size request — a single
+  // capped fetch silently dropped records once the set outgrew it. Archival bounds
+  // the active sets (slots ~3 months, bookings ~1 year), so this stays small; the
+  // page cap is a runaway guard, not an expected limit.
+  async function fetchAllPages(path) {
+    const all = [];
+    let page = 0;
+    let totalPages = 1;
+    do {
+      const data = await apiRequest(`${path}?page=${page}&size=500`);
+      all.push(...(data.content || []));
+      totalPages = data.totalPages ?? 0;
+      page += 1;
+    } while (page < totalPages && page < 40);
+    return all;
+  }
+
   async function loadAdminSlots() {
     setAdminSlotsError('');
     setIsLoadingAdminSlots(true);
     try {
-      // The manage-slots calendar groups/filters the whole set client-side, so pull a large page.
-      const data = await apiRequest('/api/slots?page=0&size=1000');
-      setAdminSlots(data.content);
+      setAdminSlots(await fetchAllPages('/api/slots'));
     } catch (error) {
       setAdminSlotsError(error.message);
       setAdminSlots([]);
@@ -610,9 +629,7 @@ function App() {
     setAdminBookingsError('');
     setIsLoadingAdminBookings(true);
     try {
-      // The schedule calendar groups/filters the whole set client-side, so pull a large page.
-      const data = await apiRequest('/api/admin/bookings?page=0&size=1000');
-      setAdminBookings(data.content);
+      setAdminBookings(await fetchAllPages('/api/admin/bookings'));
     } catch (error) {
       setAdminBookingsError(error.message);
       setAdminBookings([]);

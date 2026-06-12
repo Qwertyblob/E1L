@@ -36,6 +36,8 @@ class BookingServiceTest {
     @Mock SlotRepository slotRepository;
     @Mock UserRepository userRepository;
     @Mock RateLimiterService rateLimiter;
+    @Mock GuestVerificationService guestVerification;
+    @Mock OtpDeliveryService otpDeliveryService;
 
     @InjectMocks BookingService bookingService;
 
@@ -198,10 +200,12 @@ class BookingServiceTest {
             return b;
         });
 
+        when(guestVerification.verify("gina@example.com", "123456")).thenReturn(true);
+
         BookingResponse response = bookingService.createBooking(
                 new CreateBookingRequest(1L, "Guest Gina", "gina@example.com", "90001111", "@gina", "ombre please",
                         null, null, null, null, null,
-                        "classic", "junior", "none", "none"),
+                        "classic", "junior", "none", "none", "123456"),
                 null);
 
         assertThat(response.status()).isEqualTo("BOOKED");
@@ -255,6 +259,74 @@ class BookingServiceTest {
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         verify(bookingRepository, never()).save(any());
         assertThat(slot.getBookedCount()).isEqualTo(1); // unchanged, no seat consumed
+    }
+
+    @Test
+    void createBooking_guestWithoutValidOtp_throws400AndConsumesNoSeat() {
+        SlotEntity slot = slot(3, 0);
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(guestVerification.verify("gina@example.com", "999999")).thenReturn(false);
+
+        var ex = catchThrowableOfType(
+                () -> bookingService.createBooking(
+                        new CreateBookingRequest(1L, "Guest Gina", "gina@example.com", null, null, null,
+                                null, null, null, null, null,
+                                "classic", "junior", "none", "none", "999999"), null),
+                ResponseStatusException.class);
+
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        verify(bookingRepository, never()).save(any());
+        assertThat(slot.getBookedCount()).isZero();
+    }
+
+    @Test
+    void createBooking_authenticatedUser_skipsOtpCheck() {
+        SlotEntity slot = slot(3, 0);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(bookingRepository.existsActiveBookingForUserAndSlot(1L, 1L)).thenReturn(false);
+        when(slotRepository.saveAndFlush(slot)).thenReturn(slot);
+        when(bookingRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        bookingService.createBooking(authBooking(1L), "alice@example.com");
+
+        verifyNoInteractions(guestVerification);
+    }
+
+    // ─── requestGuestOtp ──────────────────────────────────────────────────────────
+
+    @Test
+    void requestGuestOtp_issuesCodeAndEmailsIt() {
+        when(guestVerification.issue("gina@example.com")).thenReturn("123456");
+
+        bookingService.requestGuestOtp("gina@example.com", "203.0.113.9");
+
+        verify(rateLimiter).check(eq("guest-otp-ip:203.0.113.9"), anyInt(), anyLong(), anyString());
+        verify(rateLimiter).check(eq("guest-otp:gina@example.com"), anyInt(), anyLong(), anyString());
+        verify(otpDeliveryService).sendGuestBookingOtp("gina@example.com", "123456");
+    }
+
+    @Test
+    void requestGuestOtp_invalidEmail_throws400WithoutSendingMail() {
+        var ex = catchThrowableOfType(
+                () -> bookingService.requestGuestOtp("not-an-email", "203.0.113.9"),
+                ResponseStatusException.class);
+
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        verifyNoInteractions(otpDeliveryService, guestVerification);
+    }
+
+    @Test
+    void requestGuestOtp_rateLimited_throws429WithoutSendingMail() {
+        doThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Too many"))
+                .when(rateLimiter).check(eq("guest-otp:gina@example.com"), anyInt(), anyLong(), anyString());
+
+        var ex = catchThrowableOfType(
+                () -> bookingService.requestGuestOtp("gina@example.com", null),
+                ResponseStatusException.class);
+
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        verifyNoInteractions(otpDeliveryService, guestVerification);
     }
 
     // ─── cancelBooking ────────────────────────────────────────────────────────────

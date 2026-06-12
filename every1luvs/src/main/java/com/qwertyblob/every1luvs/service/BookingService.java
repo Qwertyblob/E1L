@@ -44,21 +44,57 @@ public class BookingService {
     // Pragmatic format gate: non-empty local part, single @, a dotted domain, no spaces.
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
 
+    // Guest OTP requests are mail sends to an attacker-chosen address, so they get
+    // tighter caps than bookings: per-email like resend-verification, plus per-IP.
+    private static final int MAX_GUEST_OTP_PER_EMAIL = 3;
+    private static final int MAX_GUEST_OTP_PER_IP = 10;
+    private static final long GUEST_OTP_WINDOW_MS = 10 * 60 * 1_000L;
+    private static final int MAX_GUEST_OTP_VERIFY_ATTEMPTS = 5;
+
     private final BookingRepository bookingRepository;
     private final SlotRepository slotRepository;
     private final UserRepository userRepository;
     private final RateLimiterService rateLimiter;
+    private final GuestVerificationService guestVerification;
+    private final OtpDeliveryService otpDeliveryService;
 
     public BookingService(
             BookingRepository bookingRepository,
             SlotRepository slotRepository,
             UserRepository userRepository,
-            RateLimiterService rateLimiter
+            RateLimiterService rateLimiter,
+            GuestVerificationService guestVerification,
+            OtpDeliveryService otpDeliveryService
     ) {
         this.bookingRepository = bookingRepository;
         this.slotRepository = slotRepository;
         this.userRepository = userRepository;
         this.rateLimiter = rateLimiter;
+        this.guestVerification = guestVerification;
+        this.otpDeliveryService = otpDeliveryService;
+    }
+
+    /**
+     * Emails a one-time verification code that a guest must echo back in
+     * {@link CreateBookingRequest#otp()} before a booking will consume a seat —
+     * proving inbox control so scripted bookings with made-up emails can't fill
+     * the calendar. Rate-limited per email AND per IP because this endpoint
+     * sends mail to an arbitrary caller-chosen address.
+     */
+    public void requestGuestOtp(String email, String clientIp) {
+        String normalized = email == null ? "" : email.trim();
+        if (normalized.length() > MAX_CUSTOMER_EMAIL_LENGTH || !EMAIL_PATTERN.matcher(normalized).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A valid email is required.");
+        }
+        if (clientIp != null && !clientIp.isBlank()) {
+            rateLimiter.check("guest-otp-ip:" + clientIp, MAX_GUEST_OTP_PER_IP, GUEST_OTP_WINDOW_MS,
+                    "Too many verification requests. Please try again later.");
+        }
+        rateLimiter.check("guest-otp:" + normalized.toLowerCase(java.util.Locale.ROOT),
+                MAX_GUEST_OTP_PER_EMAIL, GUEST_OTP_WINDOW_MS,
+                "Too many verification requests for this email. Please try again later.");
+
+        otpDeliveryService.sendGuestBookingOtp(normalized, guestVerification.issue(normalized));
     }
 
     public BookingResponse createBooking(CreateBookingRequest request, String email) {
@@ -126,6 +162,21 @@ public class BookingService {
 
         if (slot.getBookedCount() >= slot.getCapacity()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This slot is fully booked.");
+        }
+
+        // Guests must prove inbox control before the seat is consumed. Checked LAST —
+        // verify() consumes the single-use code, so any earlier validation failure
+        // (bad selection, full slot, duplicate) must not burn it. Attempts are
+        // rate-limited per email so the 6-digit space can't be brute-forced.
+        if (user == null) {
+            String guestEmail = request.customerEmail().trim();
+            rateLimiter.check("guest-otp-verify:" + guestEmail.toLowerCase(java.util.Locale.ROOT),
+                    MAX_GUEST_OTP_VERIFY_ATTEMPTS, GUEST_OTP_WINDOW_MS,
+                    "Too many verification attempts. Request a new code.");
+            if (!guestVerification.verify(guestEmail, request.otp())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Invalid or expired email verification code. Request a new code and try again.");
+            }
         }
 
         slot.setBookedCount(slot.getBookedCount() + 1);

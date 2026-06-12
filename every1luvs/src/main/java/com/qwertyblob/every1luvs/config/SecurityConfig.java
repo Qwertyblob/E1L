@@ -67,7 +67,8 @@ public class SecurityConfig {
                                 "/api/auth/resend-verification-otp",
                                 "/api/auth/forgot-password",
                                 "/api/auth/reset-password",
-                                "/api/bookings"
+                                "/api/bookings",
+                                "/api/bookings/request-otp"
                         )
                 )
                 .cors(Customizer.withDefaults())
@@ -87,7 +88,7 @@ public class SecurityConfig {
                         // so this is only reachable from inside the compose networks.
                         .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/slots/available").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/bookings").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/bookings", "/api/bookings/request-otp").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )

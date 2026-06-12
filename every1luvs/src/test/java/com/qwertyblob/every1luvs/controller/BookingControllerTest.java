@@ -51,6 +51,20 @@ class BookingControllerTest {
                 5000, status, Instant.EPOCH);
     }
 
+    // ─── requestGuestOtp ─────────────────────────────────────────────────────────
+
+    @Test
+    void requestGuestOtp_passesEmailAndClientIp_returnsGenericMessage() {
+        HttpServletRequest httpRequest = mock(HttpServletRequest.class);
+        when(httpRequest.getRemoteAddr()).thenReturn("203.0.113.5");
+
+        var response = bookingController.requestGuestOtp(
+                new com.qwertyblob.every1luvs.dto.GuestOtpRequest("gina@example.com"), httpRequest);
+
+        verify(bookingService).requestGuestOtp("gina@example.com", "203.0.113.5");
+        assertThat(response.message()).contains("verification code");
+    }
+
     // ─── createBooking ───────────────────────────────────────────────────────────
 
     @Test

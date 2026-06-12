@@ -69,6 +69,27 @@ public class OtpDeliveryService {
     }
 
     @Async
+    public void sendGuestBookingOtp(String email, String otp) {
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setFrom(fromAddress);
+        message.setTo(email);
+        message.setSubject("Your every1luvs booking verification code");
+        message.setText("""
+                Your every1luvs booking verification code is %s.
+
+                Enter it on the booking screen to confirm your appointment. The code expires
+                in 10 minutes. If you did not try to book with us, you can ignore this email.
+                """.formatted(otp));
+
+        mailSender.send(message);
+
+        if (logToConsole) {
+            logger.info("Guest booking OTP for {} is {}", email, otp);
+        }
+        logger.info("Guest booking OTP email sent to {}", email);
+    }
+
+    @Async
     public void sendAccountExists(String email) {
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(fromAddress);
