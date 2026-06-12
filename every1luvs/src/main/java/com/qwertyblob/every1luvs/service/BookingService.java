@@ -225,10 +225,20 @@ public class BookingService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Active booking not found."));
 
+        SlotEntity slot = loadSlotOrThrow(booking.getSlotId());
+
+        // Customers must give at least 72 hours' notice (adminCancelBooking stays
+        // unrestricted). Slot times are wall-clock-as-UTC, so compare against "now"
+        // expressed in the same convention.
+        if (slot.getStartTime() == null
+                || slot.getStartTime().isBefore(BookingWindow.earliestCancellableStartUtc())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Bookings can only be cancelled at least 72 hours before the appointment.");
+        }
+
         booking.setStatus("CANCELLED");
         bookingRepository.save(booking);
 
-        SlotEntity slot = loadSlotOrThrow(booking.getSlotId());
         slot.setBookedCount(Math.max(0, slot.getBookedCount() - 1));
         releaseSeatOrConflict(slot);
 

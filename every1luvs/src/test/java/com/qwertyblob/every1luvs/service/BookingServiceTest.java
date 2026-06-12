@@ -22,6 +22,8 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
@@ -299,6 +301,44 @@ class BookingServiceTest {
         bookingService.cancelBooking(10L, "alice@example.com");
 
         assertThat(slot.getBookedCount()).isZero();
+    }
+
+    @Test
+    void cancelBooking_within72HoursOfSlotStart_rejectedWith400AndBookingKept() {
+        SlotEntity slot = slot(3, 2);
+        // 24h ahead in the salon's wall-clock-as-UTC convention — inside the 72h notice window.
+        slot.setStartTime(LocalDateTime.now(BookingWindow.BUSINESS_ZONE).plusHours(24).toInstant(ZoneOffset.UTC));
+        BookingEntity booking = booking("BOOKED");
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        when(bookingRepository.findActiveBookingByIdAndUserId(10L, 1L)).thenReturn(Optional.of(booking));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+
+        var ex = catchThrowableOfType(
+                () -> bookingService.cancelBooking(10L, "alice@example.com"),
+                ResponseStatusException.class);
+
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(booking.getStatus()).isEqualTo("BOOKED");
+        assertThat(slot.getBookedCount()).isEqualTo(2);
+        verify(bookingRepository, never()).save(any());
+        verify(slotRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void cancelBooking_moreThan72HoursBeforeSlotStart_succeeds() {
+        SlotEntity slot = slot(3, 2);
+        // Just past the 72h cutoff in the salon's wall-clock-as-UTC convention.
+        slot.setStartTime(LocalDateTime.now(BookingWindow.BUSINESS_ZONE).plusHours(73).toInstant(ZoneOffset.UTC));
+        BookingEntity booking = booking("BOOKED");
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        when(bookingRepository.findActiveBookingByIdAndUserId(10L, 1L)).thenReturn(Optional.of(booking));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(bookingRepository.save(booking)).thenReturn(booking);
+
+        BookingResponse response = bookingService.cancelBooking(10L, "alice@example.com");
+
+        assertThat(response.status()).isEqualTo("CANCELLED");
+        assertThat(slot.getBookedCount()).isEqualTo(1);
     }
 
     // ─── getMyBookings ────────────────────────────────────────────────────────────

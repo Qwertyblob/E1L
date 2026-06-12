@@ -23,6 +23,16 @@ function formatLocalSlotTime(isoLocal) {
   return `${months[mm - 1]} ${dd}, ${timePart}`;
 }
 
+const CANCELLATION_NOTICE_MS = 72 * 60 * 60 * 1000;
+
+// Mirrors the server's 72-hour cancellation rule (BookingWindow). Slot times are the
+// salon's wall-clock stored as UTC, and the salon runs on Singapore time (fixed UTC+8,
+// no DST), so "now" in the same convention is Date.now() + 8h.
+function isCancellable(slotStartIso) {
+  const nowAsStoredUtc = Date.now() + 8 * 60 * 60 * 1000;
+  return new Date(slotStartIso).getTime() - nowAsStoredUtc >= CANCELLATION_NOTICE_MS;
+}
+
 // ── Tab: My Bookings ──
 function BookingsTab({
   isLoadingMyBookings,
@@ -94,9 +104,13 @@ function BookingsTab({
                     {booking.status}
                   </strong>
                   {booking.status === 'BOOKED' && (
-                    <button className="text-button" onClick={() => setConfirmCancelId(booking.id)} type="button">
-                      Cancel
-                    </button>
+                    isCancellable(booking.slotStartTime) ? (
+                      <button className="text-button" onClick={() => setConfirmCancelId(booking.id)} type="button">
+                        Cancel
+                      </button>
+                    ) : (
+                      <span className="form-hint">Cancellation closes 72h before</span>
+                    )
                   )}
                 </div>
               ))}
