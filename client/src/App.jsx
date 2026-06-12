@@ -14,7 +14,6 @@ import img1 from './assets/images/img1.jpg';
 import img2 from './assets/images/img2.jpg';
 import img3 from './assets/images/img3.jpg';
 import img4 from './assets/images/img4.jpg';
-import logoBlack from './assets/images/E1LN_Logo/E1LN_Black_Long_Logo.png';
 import { useFocusTrap } from './useFocusTrap';
 
 // Default to a relative base so requests are same-origin and get forwarded by the
@@ -171,33 +170,6 @@ function App() {
   const cancelDialogRef = useFocusTrap(confirmCancelId != null, () => setConfirmCancelId(null));
   const bookingDetailRef = useFocusTrap(bookingDetail != null, () => setBookingDetail(null));
 
-  // Local-only teardown of client auth state. Used both by an explicit sign-out and
-  // when the server says we're no longer authenticated (GET /api/me 401). It does NOT
-  // call the logout endpoint — see signOut for that.
-  const clearSession = useCallback(() => {
-    localStorage.removeItem('authUser');
-    setUser(null);
-    setAdminUsers([]);
-    setAdminError('');
-    setMessage('');
-    setMessageType('error');
-    setPendingVerificationEmail('');
-    setChangePasswordForm({ currentPassword: '', newPassword: '' });
-    setChangePasswordMessage('');
-    setBookingActionMessage('');
-    setMyBookings([]);
-    setMyBookingsError('');
-    resetSlotBuilder();
-    setAdminSlots([]);
-    setAdminSlotsError('');
-    setAdminBookings([]);
-    setAdminBookingsError('');
-    setActiveView('landing');
-    setProfileTab('bookings');
-    setShowAuth(false);
-    setMode('login');
-  }, []);
-
   const apiRequest = useCallback(
     async (path, options = {}) => {
       const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -227,6 +199,33 @@ function App() {
     handleCreateSlots,
     resetSlotBuilder,
   } = useSlotBuilder({ apiRequest, onSlotsCreated: loadAdminSlots });
+
+  // Local-only teardown of client auth state. Used both by an explicit sign-out and
+  // when the server says we're no longer authenticated (GET /api/me 401). It does NOT
+  // call the logout endpoint — see signOut for that.
+  const clearSession = useCallback(() => {
+    localStorage.removeItem('authUser');
+    setUser(null);
+    setAdminUsers([]);
+    setAdminError('');
+    setMessage('');
+    setMessageType('error');
+    setPendingVerificationEmail('');
+    setChangePasswordForm({ currentPassword: '', newPassword: '' });
+    setChangePasswordMessage('');
+    setBookingActionMessage('');
+    setMyBookings([]);
+    setMyBookingsError('');
+    resetSlotBuilder();
+    setAdminSlots([]);
+    setAdminSlotsError('');
+    setAdminBookings([]);
+    setAdminBookingsError('');
+    setActiveView('landing');
+    setProfileTab('bookings');
+    setShowAuth(false);
+    setMode('login');
+  }, [resetSlotBuilder]);
 
   // Explicit sign-out: tell the server to clear the httpOnly cookie, then tear down
   // local state. Best-effort — even if the request fails (e.g. cookie already gone)
