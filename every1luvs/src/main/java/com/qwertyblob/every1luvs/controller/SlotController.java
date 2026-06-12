@@ -38,6 +38,14 @@ public class SlotController {
         return PageResponse.of(slotService.listAllSlots(pageable));
     }
 
+    // Archived slots are a separate, on-demand listing so the regular slot list
+    // (fetched on every Schedule view) never carries the growing archive.
+    @GetMapping("/admin/slots/archived")
+    @PreAuthorize("hasRole('ADMIN')")
+    public PageResponse<SlotResponse> listArchivedSlots(@PageableDefault(size = 50) Pageable pageable) {
+        return PageResponse.of(slotService.listArchivedSlots(pageable));
+    }
+
     @GetMapping("/slots/available")
     public List<SlotResponse> listAvailableSlots() {
         return slotService.listAvailableSlots();
