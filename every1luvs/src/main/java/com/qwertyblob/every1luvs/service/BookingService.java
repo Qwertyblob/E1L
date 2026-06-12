@@ -238,7 +238,7 @@ public class BookingService {
     @Transactional(readOnly = true)
     public List<BookingResponse> getMyBookings(String email) {
         UserEntity user = loadUserOrThrow(email);
-        List<BookingEntity> bookings = bookingRepository.findByUserIdOrderByCreatedAtDesc(user.getId());
+        List<BookingEntity> bookings = bookingRepository.findByUserIdAndArchivedAtIsNullOrderByCreatedAtDesc(user.getId());
         Map<Long, SlotEntity> slotsById = slotsByIdFor(bookings);
         return bookings.stream()
                 .map(b -> toResponse(b, requireSlot(slotsById, b.getSlotId()), user))
@@ -247,7 +247,7 @@ public class BookingService {
 
     @Transactional(readOnly = true)
     public Page<BookingResponse> getAllBookings(Pageable pageable) {
-        Page<BookingEntity> page = bookingRepository.findAllByOrderByCreatedAtDesc(pageable);
+        Page<BookingEntity> page = bookingRepository.findByArchivedAtIsNullOrderByCreatedAtDesc(pageable);
         // Batch-load the slots and users referenced by this page up front (two queries) instead
         // of a findById per booking, which was an N+1 that grew with the page size.
         Map<Long, SlotEntity> slotsById = slotsByIdFor(page.getContent());

@@ -307,7 +307,7 @@ class BookingServiceTest {
     void getMyBookings_returnsUserBookings() {
         BookingEntity booking = booking("BOOKED");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
-        when(bookingRepository.findByUserIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(booking));
+        when(bookingRepository.findByUserIdAndArchivedAtIsNullOrderByCreatedAtDesc(1L)).thenReturn(List.of(booking));
         when(slotRepository.findAllById(List.of(1L))).thenReturn(List.of(slot(3, 1)));
 
         List<BookingResponse> result = bookingService.getMyBookings("alice@example.com");
@@ -322,7 +322,7 @@ class BookingServiceTest {
     void getAllBookings_batchesSlotsAndUsersIntoPage() {
         BookingEntity booking = booking("BOOKED");
         Pageable pageable = PageRequest.of(0, 50);
-        when(bookingRepository.findAllByOrderByCreatedAtDesc(pageable))
+        when(bookingRepository.findByArchivedAtIsNullOrderByCreatedAtDesc(pageable))
                 .thenReturn(new PageImpl<>(List.of(booking), pageable, 1));
         // One findAllById per referenced slot/user set, not one findById per booking.
         when(slotRepository.findAllById(List.of(1L))).thenReturn(List.of(slot(3, 1)));

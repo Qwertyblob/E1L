@@ -318,7 +318,7 @@ class SlotServiceTest {
     @Test
     void listAllSlots_returnsMappedPage() {
         Pageable pageable = PageRequest.of(0, 50);
-        when(slotRepository.findAllByOrderByStartTimeAsc(pageable))
+        when(slotRepository.findByArchivedAtIsNullOrderByStartTimeAsc(pageable))
                 .thenReturn(new PageImpl<>(List.of(savedSlot(3, 1)), pageable, 1));
 
         Page<SlotResponse> result = slotService.listAllSlots(pageable);

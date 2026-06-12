@@ -122,7 +122,7 @@ public class SlotService {
 
     @Transactional(readOnly = true)
     public Page<SlotResponse> listAllSlots(Pageable pageable) {
-        return slotRepository.findAllByOrderByStartTimeAsc(pageable).map(SlotResponse::from);
+        return slotRepository.findByArchivedAtIsNullOrderByStartTimeAsc(pageable).map(SlotResponse::from);
     }
 
     public List<SlotResponse> listAvailableSlots() {

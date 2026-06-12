@@ -59,6 +59,11 @@ public class BookingEntity {
     @Column(nullable = false)
     private String status;
 
+    // Soft-archive marker (null = active). Stamped by ArchivalService 1 year after the
+    // booking's slot end_time; archived bookings disappear from customer/admin listings.
+    @Column(name = "archived_at")
+    private Instant archivedAt;
+
     @CreationTimestamp
     @Column(updatable = false)
     private Instant createdAt;
@@ -114,6 +119,9 @@ public class BookingEntity {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public Instant getArchivedAt() { return archivedAt; }
+    public void setArchivedAt(Instant archivedAt) { this.archivedAt = archivedAt; }
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }

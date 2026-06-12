@@ -42,6 +42,12 @@ public class SlotEntity {
     @Version
     private Long version;
 
+    // Soft-archive marker (null = active). Stamped by ArchivalService 3 months after
+    // end_time; archived slots are hidden from listings but kept so bookings (which
+    // archive later, 1 year after the slot ends) can still resolve their slot.
+    @Column(name = "archived_at")
+    private Instant archivedAt;
+
     @CreationTimestamp
     @Column(updatable = false)
     private Instant createdAt;
@@ -79,6 +85,9 @@ public class SlotEntity {
 
     public Long getVersion() { return version; }
     public void setVersion(Long version) { this.version = version; }
+
+    public Instant getArchivedAt() { return archivedAt; }
+    public void setArchivedAt(Instant archivedAt) { this.archivedAt = archivedAt; }
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
