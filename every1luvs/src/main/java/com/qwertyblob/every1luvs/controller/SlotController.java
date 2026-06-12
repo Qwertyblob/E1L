@@ -6,6 +6,7 @@ import com.qwertyblob.every1luvs.dto.PageResponse;
 import com.qwertyblob.every1luvs.dto.SlotResponse;
 import com.qwertyblob.every1luvs.dto.UpdateSlotRequest;
 import com.qwertyblob.every1luvs.service.SlotService;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -26,6 +27,8 @@ import java.util.List;
 @RequestMapping("/api")
 public class SlotController {
 
+    static final int MAX_ARCHIVED_PAGE_SIZE = 100;
+
     private final SlotService slotService;
 
     public SlotController(SlotService slotService) {
@@ -39,10 +42,15 @@ public class SlotController {
     }
 
     // Archived slots are a separate, on-demand listing so the regular slot list
-    // (fetched on every Schedule view) never carries the growing archive.
+    // (fetched on every Schedule view) never carries the growing archive. The page
+    // size is capped because the archive grows without bound; the client pages
+    // through it rather than pulling everything at once.
     @GetMapping("/admin/slots/archived")
     @PreAuthorize("hasRole('ADMIN')")
-    public PageResponse<SlotResponse> listArchivedSlots(@PageableDefault(size = 50) Pageable pageable) {
+    public PageResponse<SlotResponse> listArchivedSlots(@PageableDefault(size = MAX_ARCHIVED_PAGE_SIZE) Pageable pageable) {
+        if (pageable.getPageSize() > MAX_ARCHIVED_PAGE_SIZE) {
+            pageable = PageRequest.of(pageable.getPageNumber(), MAX_ARCHIVED_PAGE_SIZE, pageable.getSort());
+        }
         return PageResponse.of(slotService.listArchivedSlots(pageable));
     }
 

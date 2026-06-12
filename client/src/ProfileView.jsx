@@ -794,6 +794,8 @@ function ManageSlotsPanel({
   archivedSlotsError,
   archivedSlots,
   archivedSlotsLoaded,
+  archivedSlotsPage,
+  archivedSlotsTotal,
   formatDate,
   formatTimestamp,
   handleDeleteSlot,
@@ -855,9 +857,10 @@ function ManageSlotsPanel({
             { id: 'all', label: 'All' },
             { id: 'archived', label: 'Archived' },
           ].map((f) => {
-            // Archived shows no count until its data has actually been fetched.
+            // Archived shows no count until its data has actually been fetched; once
+            // fetched, the count is the server-side total, not just the loaded pages.
             const count = f.id === 'archived'
-              ? (archivedSlotsLoaded ? archivedSlots.length : null)
+              ? (archivedSlotsLoaded ? archivedSlotsTotal : null)
               : f.id === 'all'
                 ? adminSlots.length
                 : f.id === 'upcoming'
@@ -939,6 +942,19 @@ function ManageSlotsPanel({
             </button>
           </div>
         ))}
+        {slotView === 'list' && slotFilter === 'archived' && archivedSlotsLoaded
+          && archivedSlots.length < archivedSlotsTotal && (
+          <button
+            className="primary-button compact archived-load-more"
+            disabled={isLoadingArchivedSlots}
+            onClick={() => loadArchivedSlots(archivedSlotsPage + 1)}
+            type="button"
+          >
+            {isLoadingArchivedSlots
+              ? 'Loading'
+              : `Load more (${archivedSlots.length} of ${archivedSlotsTotal})`}
+          </button>
+        )}
       </div>
     </article>
   );
@@ -1001,6 +1017,8 @@ function ScheduleTab(props) {
         archivedSlotsError={props.archivedSlotsError}
         archivedSlots={props.archivedSlots}
         archivedSlotsLoaded={props.archivedSlotsLoaded}
+        archivedSlotsPage={props.archivedSlotsPage}
+        archivedSlotsTotal={props.archivedSlotsTotal}
         formatDate={props.formatDate}
         formatTimestamp={props.formatTimestamp}
         handleDeleteSlot={props.handleDeleteSlot}
@@ -1081,6 +1099,8 @@ function ProfileView({
   archivedSlotsError,
   archivedSlots,
   archivedSlotsLoaded,
+  archivedSlotsPage,
+  archivedSlotsTotal,
   handleDeleteSlot,
 }) {
   return (
@@ -1217,6 +1237,8 @@ function ProfileView({
             archivedSlotsError={archivedSlotsError}
             archivedSlots={archivedSlots}
             archivedSlotsLoaded={archivedSlotsLoaded}
+            archivedSlotsPage={archivedSlotsPage}
+            archivedSlotsTotal={archivedSlotsTotal}
             handleDeleteSlot={handleDeleteSlot}
           />
         )}

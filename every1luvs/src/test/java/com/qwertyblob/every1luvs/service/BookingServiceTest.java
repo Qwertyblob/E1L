@@ -381,7 +381,7 @@ class BookingServiceTest {
     void adminCancelBooking_happyPath_cancelsAndDecrementsCount() {
         SlotEntity slot = slot(3, 2);
         BookingEntity booking = booking("BOOKED");
-        when(bookingRepository.findByIdAndStatus(10L, "BOOKED")).thenReturn(Optional.of(booking));
+        when(bookingRepository.findByIdAndStatusAndArchivedAtIsNull(10L, "BOOKED")).thenReturn(Optional.of(booking));
         when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
         when(bookingRepository.save(booking)).thenReturn(booking);
         when(userRepository.findById(1L)).thenReturn(Optional.of(user()));
@@ -394,7 +394,7 @@ class BookingServiceTest {
 
     @Test
     void adminCancelBooking_notFound_throws404() {
-        when(bookingRepository.findByIdAndStatus(99L, "BOOKED")).thenReturn(Optional.empty());
+        when(bookingRepository.findByIdAndStatusAndArchivedAtIsNull(99L, "BOOKED")).thenReturn(Optional.empty());
         var ex = catchThrowableOfType(() -> bookingService.adminCancelBooking(99L), ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }

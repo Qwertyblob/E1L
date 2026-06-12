@@ -166,6 +166,10 @@ function App() {
   const [archivedSlotsError, setArchivedSlotsError] = useState('');
   const [isLoadingArchivedSlots, setIsLoadingArchivedSlots] = useState(false);
   const [archivedSlotsLoaded, setArchivedSlotsLoaded] = useState(false);
+  // The archive is paged (server caps page size at 100): track the last loaded page
+  // and the server-side total so the UI can offer "load more" and show a real count.
+  const [archivedSlotsPage, setArchivedSlotsPage] = useState(0);
+  const [archivedSlotsTotal, setArchivedSlotsTotal] = useState(0);
   const [isLoadingAdminSlots, setIsLoadingAdminSlots] = useState(false);
 
   const [adminBookings, setAdminBookings] = useState([]);
@@ -225,6 +229,11 @@ function App() {
     resetSlotBuilder();
     setAdminSlots([]);
     setAdminSlotsError('');
+    setArchivedSlots([]);
+    setArchivedSlotsError('');
+    setArchivedSlotsLoaded(false);
+    setArchivedSlotsPage(0);
+    setArchivedSlotsTotal(0);
     setAdminBookings([]);
     setAdminBookingsError('');
     setActiveView('landing');
@@ -567,16 +576,20 @@ function App() {
     }
   }
 
-  async function loadArchivedSlots() {
+  // page 0 (re)loads the archive from the top; higher pages append, so "load more"
+  // extends the list instead of replacing it. The server caps the page size at 100.
+  async function loadArchivedSlots(page = 0) {
     setArchivedSlotsError('');
     setIsLoadingArchivedSlots(true);
     try {
-      const data = await apiRequest('/api/admin/slots/archived?page=0&size=1000');
-      setArchivedSlots(data.content);
+      const data = await apiRequest(`/api/admin/slots/archived?page=${page}&size=100`);
+      setArchivedSlots((prev) => (page === 0 ? data.content : [...prev, ...data.content]));
+      setArchivedSlotsPage(data.number);
+      setArchivedSlotsTotal(data.totalElements);
       setArchivedSlotsLoaded(true);
     } catch (error) {
       setArchivedSlotsError(error.message);
-      setArchivedSlots([]);
+      if (page === 0) setArchivedSlots([]);
     } finally {
       setIsLoadingArchivedSlots(false);
     }
@@ -771,6 +784,8 @@ function App() {
         archivedSlotsError={archivedSlotsError}
         archivedSlots={archivedSlots}
         archivedSlotsLoaded={archivedSlotsLoaded}
+        archivedSlotsPage={archivedSlotsPage}
+        archivedSlotsTotal={archivedSlotsTotal}
         handleDeleteSlot={handleDeleteSlot}
       />
     );
