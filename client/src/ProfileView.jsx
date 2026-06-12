@@ -884,9 +884,12 @@ function ManageSlotsPanel({
           <p className="empty-state">{slotView === 'calendar' ? 'No slots.' : `No ${slotFilter} slots.`}</p>
         )}
         {visibleSlots.map((slot) => (
-          <div className="user-row" key={slot.id}>
+          <div className={`user-row${slot.archived ? ' user-row--archived' : ''}`} key={slot.id}>
             <div className="row-info">
-              <span>{slot.title}</span>
+              <span>
+                {slot.title}
+                {slot.archived && <span className="archived-pill">Archived</span>}
+              </span>
               <span className="form-hint">
                 {formatDate(slot.startTime)} &rarr; {formatDate(slot.endTime)} &middot; {slot.bookedCount}/{slot.capacity} booked &middot; Created {formatTimestamp(slot.createdAt)}
               </span>

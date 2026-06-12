@@ -33,7 +33,7 @@ class SlotControllerTest {
     @InjectMocks SlotController slotController;
 
     private static SlotResponse slot(Long id) {
-        return new SlotResponse(id, "Slot " + id, "desc", Instant.EPOCH, Instant.EPOCH, 3, 0, true, Instant.EPOCH);
+        return new SlotResponse(id, "Slot " + id, "desc", Instant.EPOCH, Instant.EPOCH, 3, 0, true, false, Instant.EPOCH);
     }
 
     @Test

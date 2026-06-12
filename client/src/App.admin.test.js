@@ -81,6 +81,22 @@ describe('App admin — schedule view loads data', () => {
     expect(callsTo('/api/slots').length).toBeGreaterThan(0);
     expect(await screen.findByText('Morning Mani')).toBeInTheDocument();
   });
+
+  test('archived slots stay listed with an Archived badge', async () => {
+    setupFetch([
+      { method: 'GET', path: '/api/slots', status: 200, body: page([
+        { id: 101, title: 'Old Mani', startTime: '2025-01-15T09:00:00', endTime: '2025-01-15T10:00:00', capacity: 1, bookedCount: 1, archived: true, createdAt: '2025-01-01T08:00:00Z' },
+        { id: 102, title: 'Fresh Mani', startTime: `${PICKED_DATE}T09:00:00`, endTime: `${PICKED_DATE}T10:00:00`, capacity: 1, bookedCount: 0, archived: false, createdAt: `${PICKED_DATE}T08:00:00Z` },
+      ]) },
+    ]);
+    render(<App />);
+    await gotoSchedule();
+
+    // Both slots render (archived ones are not hidden), but only the archived one is badged.
+    expect(await screen.findByText('Old Mani')).toBeInTheDocument();
+    expect(await screen.findByText('Fresh Mani')).toBeInTheDocument();
+    expect(screen.getAllByText('Archived')).toHaveLength(1);
+  });
 });
 
 describe('App admin — create slots', () => {

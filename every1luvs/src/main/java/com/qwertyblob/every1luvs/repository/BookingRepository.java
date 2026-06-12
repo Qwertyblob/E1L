@@ -25,7 +25,8 @@ public interface BookingRepository extends JpaRepository<BookingEntity, Long> {
             + "AND LOWER(b.customerEmail) = LOWER(:email) AND b.status = 'BOOKED'")
     boolean existsActiveGuestBookingForSlotAndEmail(@Param("slotId") Long slotId, @Param("email") String email);
 
-    // Customer/admin listings show active (non-archived) bookings only.
+    // Customer/admin listings hide archived bookings, so year-old bookings appear
+    // deleted in the frontend while the rows stay in the table.
     List<BookingEntity> findByUserIdAndArchivedAtIsNullOrderByCreatedAtDesc(Long userId);
 
     @Query("SELECT b FROM BookingEntity b WHERE b.id = :id AND b.userId = :userId AND b.status = 'BOOKED'")

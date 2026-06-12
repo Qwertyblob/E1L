@@ -13,9 +13,9 @@ import java.util.List;
 
 public interface SlotRepository extends JpaRepository<SlotEntity, Long> {
 
-    // Admin listing shows active (non-archived) slots only; archived slots stay in the
-    // table so bookings that outlive them (1-year retention vs 3 months) still resolve.
-    Page<SlotEntity> findByArchivedAtIsNullOrderByStartTimeAsc(Pageable pageable);
+    // Admin listing includes archived slots — the frontend shows them with an
+    // "Archived" badge instead of hiding them (unlike bookings, which are hidden).
+    Page<SlotEntity> findAllByOrderByStartTimeAsc(Pageable pageable);
 
     @Query("SELECT s FROM SlotEntity s WHERE s.archivedAt IS NULL AND s.bookedCount < s.capacity "
             + "AND s.startTime >= :earliest ORDER BY s.startTime ASC")

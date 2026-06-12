@@ -60,7 +60,8 @@ public class BookingEntity {
     private String status;
 
     // Soft-archive marker (null = active). Stamped by ArchivalService 1 year after the
-    // booking's slot end_time; archived bookings disappear from customer/admin listings.
+    // booking's slot end_time; archived bookings disappear from customer/admin listings
+    // (they appear deleted in the frontend) but stay in the table.
     @Column(name = "archived_at")
     private Instant archivedAt;
 

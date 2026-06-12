@@ -13,6 +13,7 @@ public record SlotResponse(
         int capacity,
         int bookedCount,
         boolean available,
+        boolean archived,
         Instant createdAt
 ) {
     public static SlotResponse from(SlotEntity slot) {
@@ -25,6 +26,7 @@ public record SlotResponse(
                 slot.getCapacity(),
                 slot.getBookedCount(),
                 slot.getBookedCount() < slot.getCapacity(),
+                slot.getArchivedAt() != null,
                 slot.getCreatedAt()
         );
     }
