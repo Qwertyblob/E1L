@@ -71,6 +71,11 @@ export function computePreviewSlots(builder) {
   if (dates.length === 0) return [];
   const timeSlots = getTimeSlotsForDay(builder);
   if (timeSlots.length === 0) return [];
+  // A typed capacity below 1 (or non-numeric) falls back to 1 rather than passing a
+  // negative/zero through — parseInt('-5') is truthy, so a bare `|| 1` would not catch it
+  // and the batch would be rejected by the server. Clamp here so the preview never lies.
+  const parsedCapacity = parseInt(builder.capacity, 10);
+  const capacity = Number.isInteger(parsedCapacity) && parsedCapacity >= 1 ? parsedCapacity : 1;
   const result = [];
   for (const date of dates) {
     for (const { start, end } of timeSlots) {
@@ -79,7 +84,7 @@ export function computePreviewSlots(builder) {
         description: builder.description.trim() || null,
         startTime: `${date}T${start}`,
         endTime: `${date}T${end}`,
-        capacity: parseInt(builder.capacity, 10) || 1,
+        capacity,
       });
     }
   }

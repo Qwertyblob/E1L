@@ -7,6 +7,15 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * In-process, per-key fixed-window rate limiter.
+ *
+ * <p>State lives in a local {@link ConcurrentHashMap}, so limits are enforced per JVM. This
+ * is correct for the single-instance docker-compose deployment this app targets. If it is
+ * ever scaled to multiple replicas behind a load balancer, each replica would keep its own
+ * counters and the effective limit would multiply by the replica count — at that point move
+ * the buckets to a shared store (e.g. Redis) so the window is global.
+ */
 @Service
 public class RateLimiterService {
 

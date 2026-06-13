@@ -230,6 +230,40 @@ class SlotServiceTest {
         assertThat(result.get(0).capacity()).isEqualTo(1);
     }
 
+    @Test
+    void createSlot_duplicateActiveTimeWindow_throws409() {
+        when(slotRepository.existsByArchivedAtIsNullAndStartTimeAndEndTime(any(), any())).thenReturn(true);
+
+        var ex = catchThrowableOfType(
+                () -> slotService.createSlot(new CreateSlotRequest("Session", null, FUTURE_START, FUTURE_END, 1)),
+                ResponseStatusException.class);
+
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getReason()).contains("already exists");
+        verify(slotRepository, never()).save(any());
+    }
+
+    @Test
+    void createSlots_duplicateWindowWithinBatch_throws409() {
+        when(slotRepository.save(any())).thenAnswer(inv -> {
+            SlotEntity s = inv.getArgument(0);
+            s.setId(1L);
+            return s;
+        });
+
+        // Two slots with the same start+end in one request: the second is a duplicate even
+        // though the first hasn't been flushed for the DB existsBy... check to see it.
+        var ex = catchThrowableOfType(
+                () -> slotService.createSlots(new BatchCreateSlotsRequest(List.of(
+                        new CreateSlotRequest("Slot A", null, FUTURE_START, FUTURE_END, 1),
+                        new CreateSlotRequest("Slot A again", null, FUTURE_START, FUTURE_END, 1)
+                ))),
+                ResponseStatusException.class);
+
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getReason()).contains("already exists");
+    }
+
     // ─── updateSlot ──────────────────────────────────────────────────────────────
 
     @Test

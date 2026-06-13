@@ -19,7 +19,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class SlotService {
@@ -47,16 +49,25 @@ public class SlotService {
         if (request == null || request.slots() == null || request.slots().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one slot is required.");
         }
-        return request.slots().stream().map(this::saveSlot).toList();
+        // Catch duplicate time windows within the batch itself: JPA save() doesn't flush
+        // before the next existsBy... check, so two identical slots in one request would
+        // otherwise both pass the DB guard in saveSlot and persist together.
+        Set<String> seenWindows = new HashSet<>();
+        return request.slots().stream().map(slot -> saveSlot(slot, seenWindows)).toList();
     }
 
     private SlotResponse saveSlot(CreateSlotRequest request) {
+        return saveSlot(request, null);
+    }
+
+    private SlotResponse saveSlot(CreateSlotRequest request, Set<String> seenWindows) {
         String title = normalizeText(request.title());
         Instant startTime = parseTime(request.startTime(), "Start time");
         Instant endTime = parseTime(request.endTime(), "End time");
         int capacity = request.capacity() != null ? request.capacity() : 1;
 
         validateSlotFields(title, startTime, endTime, capacity);
+        checkNotDuplicate(startTime, endTime, seenWindows);
 
         SlotEntity slot = new SlotEntity();
         slot.setTitle(title);
@@ -146,6 +157,16 @@ public class SlotService {
     SlotEntity loadOrThrow(Long id) {
         return slotRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Slot not found."));
+    }
+
+    // Rejects a new slot whose exact start+end window already exists (active slots only),
+    // and — when building a batch — one that repeats a window earlier in the same request.
+    private void checkNotDuplicate(Instant startTime, Instant endTime, Set<String> seenWindows) {
+        boolean duplicateInBatch = seenWindows != null && !seenWindows.add(startTime + "|" + endTime);
+        if (duplicateInBatch || slotRepository.existsByArchivedAtIsNullAndStartTimeAndEndTime(startTime, endTime)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "A slot already exists for this time. Increase its capacity instead of adding a duplicate.");
+        }
     }
 
     private void validateSlotFields(String title, Instant startTime, Instant endTime, int capacity) {

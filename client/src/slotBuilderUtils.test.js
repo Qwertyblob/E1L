@@ -233,6 +233,11 @@ describe('computePreviewSlots', () => {
     expect(result[0].capacity).toBe(1);
   });
 
+  test('capacity below 1 is clamped to 1 (parseInt("-5") is truthy)', () => {
+    expect(computePreviewSlots({ ...base, capacity: '-5' })[0].capacity).toBe(1);
+    expect(computePreviewSlots({ ...base, capacity: '0' })[0].capacity).toBe(1);
+  });
+
   test('multiple slots per day × multiple dates', () => {
     const result = computePreviewSlots({
       ...base,

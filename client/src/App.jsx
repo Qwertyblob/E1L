@@ -138,6 +138,10 @@ function App() {
   // Auth is now carried by an httpOnly cookie the JS can't read; `user` (confirmed via
   // GET /api/me) is the single source of truth for "is someone signed in".
   const [user, setUser] = useState(readStoredUser);
+  // The cached user (localStorage) is shown immediately for a smooth signed-in UX, but its
+  // `role` is not trusted for admin gating until GET /api/me confirms it — a stale or
+  // hand-edited cache must not flash the admin UI before the server has its say.
+  const [authConfirmed, setAuthConfirmed] = useState(false);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('error');
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState('');
@@ -219,6 +223,7 @@ function App() {
   const clearSession = useCallback(() => {
     localStorage.removeItem('authUser');
     setUser(null);
+    setAuthConfirmed(false);
     setAdminUsers([]);
     setAdminError('');
     setMessage('');
@@ -258,6 +263,9 @@ function App() {
   const saveSession = useCallback((authUser) => {
     localStorage.setItem('authUser', JSON.stringify(authUser));
     setUser(authUser);
+    // login/verify return the server's authoritative user object, so the role is
+    // confirmed at this point — no need to wait for a follow-up /api/me.
+    setAuthConfirmed(true);
     setPendingVerificationEmail('');
     setShowAuth(false);
   }, []);
@@ -267,6 +275,7 @@ function App() {
       const profile = await apiRequest('/api/me');
       localStorage.setItem('authUser', JSON.stringify(profile));
       setUser(profile);
+      setAuthConfirmed(true);
     } catch {
       // 401 (anonymous or expired cookie) — make sure no stale user lingers.
       clearSession();
@@ -672,7 +681,9 @@ function App() {
     }
   }
 
-  const isAdmin = user?.role === 'ADMIN';
+  // Gate admin UI on a server-confirmed role only: a cached/forged `role` in localStorage
+  // must not reveal the admin surface during the brief window before /api/me answers.
+  const isAdmin = authConfirmed && user?.role === 'ADMIN';
   const SCHEDULE_STATUS = { upcoming: 'BOOKED', completed: 'COMPLETED', cancelled: 'CANCELLED' };
   // Calendar only surfaces upcoming (still-active) bookings.
   const upcomingBookings = adminBookings.filter((b) => b.status === 'BOOKED');
