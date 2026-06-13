@@ -8,6 +8,7 @@ import com.qwertyblob.every1luvs.entity.UserEntity;
 import com.qwertyblob.every1luvs.repository.BookingRepository;
 import com.qwertyblob.every1luvs.repository.SlotRepository;
 import com.qwertyblob.every1luvs.repository.UserRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -157,7 +158,18 @@ public class BookingService {
         booking.setNailArt(quote.nailArt());
         booking.setRemoval(quote.removal());
         booking.setTotalPrice(quote.totalPrice());
-        bookingRepository.save(booking);
+
+        try {
+            // The exists-checks above are TOCTOU; the partial unique indexes
+            // (uq_bookings_active_user_slot / uq_bookings_active_guest_slot_email) are the
+            // real guard against a concurrent duplicate. Translate their violation to a 409
+            // so a racing double-submit surfaces as a conflict, not a 500. The whole
+            // transaction (including the seat increment above) rolls back on the way out.
+            bookingRepository.save(booking);
+        } catch (DataIntegrityViolationException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "You already have an active booking for this slot.");
+        }
 
         return toResponse(booking, slot, user);
     }

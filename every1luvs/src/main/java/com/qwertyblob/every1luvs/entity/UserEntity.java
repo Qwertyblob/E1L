@@ -43,7 +43,7 @@ public class UserEntity {
 
     private long resetOtpExpireAt;
 
-    // Epoch seconds of the last password change/reset. Tokens issued before this instant
+    // Epoch millis of the last password change/reset. Tokens issued before this instant
     // are rejected by TokenAuthenticationFilter, so a password change logs out all sessions.
     private long passwordChangedAt;
 

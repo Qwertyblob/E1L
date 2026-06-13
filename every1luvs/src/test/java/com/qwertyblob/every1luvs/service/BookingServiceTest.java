@@ -13,6 +13,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -167,6 +168,24 @@ class BookingServiceTest {
                 ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(ex.getReason()).contains("Please try again");
+    }
+
+    @Test
+    void createBooking_uniqueConstraintViolation_throws409() {
+        // The exists-check passes (TOCTOU), but a concurrent insert trips the partial unique
+        // index, so the save throws DataIntegrityViolationException — surface it as 409, not 500.
+        SlotEntity slot = slot(3, 1);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(bookingRepository.existsActiveBookingForUserAndSlot(1L, 1L)).thenReturn(false);
+        when(slotRepository.saveAndFlush(slot)).thenReturn(slot);
+        when(bookingRepository.save(any())).thenThrow(new DataIntegrityViolationException("duplicate key"));
+
+        var ex = catchThrowableOfType(
+                () -> bookingService.createBooking(authBooking(1L), "alice@example.com"),
+                ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getReason()).contains("already have an active booking");
     }
 
     @Test
