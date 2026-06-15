@@ -6,6 +6,7 @@
 #   03:15 daily   backup-to-r2.sh          dump -> R2
 #   03:45 monthly restore-from-r2.sh       non-destructive restore drill (1st of month)
 #   every 30 min  check-mail-failures.sh   alert if the app logged mail-delivery failures
+#   every 5 min   log-monitor.sh           detect prod errors -> dispatch the AI diagnoser
 #
 # Cron output lands in /var/log/e1l-*.log; set MAILTO in the crontab (or a Cloudflare
 # notification on the logs) if you want failures pushed instead of pulled.
@@ -18,13 +19,15 @@ MARKER_END="# <<< every1luvs ops <<<"
 
 chmod +x "$REPO_ROOT/scripts/backup-to-r2.sh" \
          "$REPO_ROOT/scripts/restore-from-r2.sh" \
-         "$REPO_ROOT/scripts/check-mail-failures.sh"
+         "$REPO_ROOT/scripts/check-mail-failures.sh" \
+         "$REPO_ROOT/scripts/log-monitor.sh"
 
 BLOCK="$(cat <<EOF
 $MARKER_BEGIN
 15 3 * * *   $REPO_ROOT/scripts/backup-to-r2.sh        >> /var/log/e1l-backup.log 2>&1
 45 3 1 * *   $REPO_ROOT/scripts/restore-from-r2.sh     >> /var/log/e1l-restore-drill.log 2>&1
 */30 * * * * $REPO_ROOT/scripts/check-mail-failures.sh >> /var/log/e1l-mail-alert.log 2>&1
+*/5 * * * *  $REPO_ROOT/scripts/log-monitor.sh         >> /var/log/e1l-log-monitor.log 2>&1
 $MARKER_END
 EOF
 )"
