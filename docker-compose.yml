@@ -30,6 +30,10 @@ services:
       retries: 5
 
   app:
+    # CI builds & pushes this image to GHCR; the server `docker compose pull`s it (see
+    # .github/workflows/deploy.yml). `build` stays so local `up -d --build` still works and
+    # tags the result under the same name. ${E1L_IMAGE_TAG:-latest} lets a deploy pin a SHA.
+    image: ghcr.io/qwertyblob/e1l-app:${E1L_IMAGE_TAG:-latest}
     build:
       context: .                       # repo root: Maven build needs ../client/src/services.json
       dockerfile: every1luvs/Dockerfile
@@ -54,6 +58,7 @@ services:
       start_period: 60s                # JVM + schema init headroom on first boot
 
   web:
+    image: ghcr.io/qwertyblob/e1l-web:${E1L_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: web/Dockerfile
