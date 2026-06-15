@@ -123,6 +123,34 @@ class UserControllerTest {
         verifyNoInteractions(authService);
     }
 
+    // ─── deleteAccount ───────────────────────────────────────────────────────────
+
+    @Test
+    void deleteAccount_delegatesToServiceAndClearsCookie() {
+        Authentication auth = mock(Authentication.class);
+        when(auth.isAuthenticated()).thenReturn(true);
+        when(auth.getName()).thenReturn("alice@example.com");
+        when(authCookieService.clear()).thenReturn(ResponseCookie.from("auth_token", "").maxAge(0).build());
+        HttpServletResponse response = mock(HttpServletResponse.class);
+
+        MessageResponse result = userController.deleteAccount(auth, response);
+
+        assertThat(result.message()).isEqualTo("Your account has been deleted.");
+        verify(userService).deleteAccount("alice@example.com");
+        // Logged out immediately: the now-invalid session cookie is cleared in the response.
+        verify(response).addHeader(eq(HttpHeaders.SET_COOKIE), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void deleteAccount_nullAuthentication_throwsUnauthorized() {
+        HttpServletResponse response = mock(HttpServletResponse.class);
+
+        assertThatThrownBy(() -> userController.deleteAccount(null, response))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED));
+        verifyNoInteractions(userService);
+    }
+
     // ─── users (admin) ───────────────────────────────────────────────────────────
 
     @Test

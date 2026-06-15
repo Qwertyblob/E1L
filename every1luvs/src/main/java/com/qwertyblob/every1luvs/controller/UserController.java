@@ -14,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -57,6 +58,20 @@ public class UserController {
         // logged out immediately instead of on its next (now-401) request.
         response.addHeader(HttpHeaders.SET_COOKIE, authCookieService.clear().toString());
         return result;
+    }
+
+    @DeleteMapping("/me")
+    public MessageResponse deleteAccount(Authentication authentication, HttpServletResponse response) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication is required.");
+        }
+
+        userService.deleteAccount(authentication.getName());
+
+        // The account (and its session) no longer exists; clear the cookie so the client is
+        // logged out immediately instead of on its next (now-401) request.
+        response.addHeader(HttpHeaders.SET_COOKIE, authCookieService.clear().toString());
+        return new MessageResponse("Your account has been deleted.", null);
     }
 
     @GetMapping("/admin/users")

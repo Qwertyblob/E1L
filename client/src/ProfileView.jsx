@@ -147,7 +147,13 @@ function AccountTab({
   changePasswordMessage,
   changePasswordMessageType,
   isChangingPassword,
+  handleDeleteAccount,
+  deleteAccountMessage,
+  isDeletingAccount,
 }) {
+  // Two-step delete: the first click reveals the confirmation; only the explicit
+  // "Yes, delete my account" actually calls the irreversible endpoint.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   return (
     <div className="dashboard-grid">
       <article className="panel">
@@ -215,6 +221,45 @@ function AccountTab({
             </button>
           </div>
         </form>
+      </article>
+
+      <article className="panel panel--wide danger-zone">
+        <div className="panel-heading">
+          <h3>Delete account</h3>
+        </div>
+        <p className="form-hint">
+          Permanently delete your account and all of your bookings. This cannot be undone.
+        </p>
+        {deleteAccountMessage && <p className="form-message error">{deleteAccountMessage}</p>}
+        {confirmingDelete ? (
+          <div className="danger-zone-confirm">
+            <p className="form-message error">Are you sure? This permanently deletes your account and bookings.</p>
+            <div className="danger-zone-actions">
+              <button
+                className="danger-button"
+                disabled={isDeletingAccount}
+                onClick={handleDeleteAccount}
+                type="button"
+              >
+                {isDeletingAccount ? 'Deleting…' : 'Yes, delete my account'}
+              </button>
+              <button
+                className="outline-button outline-button--sm"
+                disabled={isDeletingAccount}
+                onClick={() => setConfirmingDelete(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <button className="danger-button" onClick={() => setConfirmingDelete(true)} type="button">
+              Delete account
+            </button>
+          </div>
+        )}
       </article>
     </div>
   );
@@ -1058,6 +1103,9 @@ function ProfileView({
   changePasswordMessage,
   changePasswordMessageType,
   isChangingPassword,
+  handleDeleteAccount,
+  deleteAccountMessage,
+  isDeletingAccount,
   scheduleView,
   setScheduleView,
   isLoadingAdminBookings,
@@ -1187,6 +1235,9 @@ function ProfileView({
             changePasswordMessage={changePasswordMessage}
             changePasswordMessageType={changePasswordMessageType}
             isChangingPassword={isChangingPassword}
+            handleDeleteAccount={handleDeleteAccount}
+            deleteAccountMessage={deleteAccountMessage}
+            isDeletingAccount={isDeletingAccount}
           />
         )}
 

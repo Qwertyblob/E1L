@@ -1882,3 +1882,34 @@ input:focus {
   .profile-view { padding: 40px 24px 64px; }
   .profile-view-header { align-items: flex-start; flex-direction: column; }
 }
+
+/* ── Account: delete account (danger zone) ── */
+.danger-zone {
+  border: 1px solid rgba(216, 82, 74, 0.35);
+}
+.danger-zone .panel-heading h3 { color: #982d27; }
+.danger-zone-confirm { margin-top: 12px; }
+.danger-zone-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+}
+.danger-button {
+  align-items: center;
+  background: #d8524a;
+  border: none;
+  border-radius: 999px;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 26px;
+  transition: background 0.15s;
+}
+.danger-button:hover { background: #b83c35; }
+.danger-button:disabled { cursor: not-allowed; opacity: 0.6; }
