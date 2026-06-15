@@ -1897,7 +1897,7 @@ input:focus {
 }
 .danger-button {
   align-items: center;
-  background: #d8524a;
+  background: #c90d03;
   border: none;
   border-radius: 999px;
   color: #fff;
@@ -1908,8 +1908,15 @@ input:focus {
   font-weight: 700;
   justify-content: center;
   min-height: 48px;
-  padding: 0 26px;
+  padding: 0 18px;
+  margin-top: 10px;
   transition: background 0.15s;
+}
+.outline-button--sm {
+  padding: 0 18px;
+  height: 48px;
+  font-size: 0.875rem;
+  margin-top: 10px;
 }
 .danger-button:hover { background: #b83c35; }
 .danger-button:disabled { cursor: not-allowed; opacity: 0.6; }
