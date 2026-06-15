@@ -147,6 +147,8 @@ function App() {
   const [changePasswordMessage, setChangePasswordMessage] = useState('');
   const [changePasswordMessageType, setChangePasswordMessageType] = useState('error');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [deleteAccountMessage, setDeleteAccountMessage] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   const [bookingActionMessage, setBookingActionMessage] = useState('');
   const [bookingActionMessageType, setBookingActionMessageType] = useState('error');
@@ -223,6 +225,8 @@ function App() {
     setPendingVerificationEmail('');
     setChangePasswordForm({ currentPassword: '', newPassword: '' });
     setChangePasswordMessage('');
+    setDeleteAccountMessage('');
+    setIsDeletingAccount(false);
     setBookingActionMessage('');
     setMyBookings([]);
     setMyBookingsError('');
@@ -523,6 +527,23 @@ function App() {
     }
   }
 
+  async function handleDeleteAccount() {
+    setDeleteAccountMessage('');
+    setIsDeletingAccount(true);
+
+    try {
+      await apiRequest('/api/me', { method: 'DELETE' });
+      // The account is gone and the server has cleared the auth cookie, so tear down local
+      // state and return the now-anonymous visitor to the landing page.
+      clearSession();
+      setMessage('Your account has been deleted.');
+      setMessageType('success');
+    } catch (error) {
+      setDeleteAccountMessage(error.message);
+      setIsDeletingAccount(false);
+    }
+  }
+
   function formatDate(iso) {
     // Slot/booking times are stored as the admin's entered wall-clock (persisted as
     // UTC), so render them in UTC to show exactly what was set, regardless of the
@@ -743,6 +764,9 @@ function App() {
         changePasswordMessage={changePasswordMessage}
         changePasswordMessageType={changePasswordMessageType}
         isChangingPassword={isChangingPassword}
+        handleDeleteAccount={handleDeleteAccount}
+        deleteAccountMessage={deleteAccountMessage}
+        isDeletingAccount={isDeletingAccount}
         scheduleView={scheduleView}
         setScheduleView={setScheduleView}
         isLoadingAdminBookings={isLoadingAdminBookings}

@@ -1,7 +1,10 @@
 package com.qwertyblob.every1luvs.service;
 
 import com.qwertyblob.every1luvs.dto.UserResponse;
+import com.qwertyblob.every1luvs.entity.BookingEntity;
 import com.qwertyblob.every1luvs.entity.UserEntity;
+import com.qwertyblob.every1luvs.repository.BookingRepository;
+import com.qwertyblob.every1luvs.repository.SlotRepository;
 import com.qwertyblob.every1luvs.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -10,13 +13,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
 @Service
 public class UserService {
 
     private final UserRepository userRepository;
+    private final BookingRepository bookingRepository;
+    private final SlotRepository slotRepository;
 
-    public UserService(UserRepository userRepository) {
+    public UserService(UserRepository userRepository, BookingRepository bookingRepository,
+                       SlotRepository slotRepository) {
         this.userRepository = userRepository;
+        this.bookingRepository = bookingRepository;
+        this.slotRepository = slotRepository;
     }
 
     // Look up the authenticated user's own profile. Treats a missing row as 401 (the account
@@ -31,5 +42,30 @@ public class UserService {
     @Transactional(readOnly = true)
     public Page<UserResponse> listAll(Pageable pageable) {
         return userRepository.findAll(pageable).map(UserResponse::from);
+    }
+
+    // Permanently delete the authenticated user and all of their bookings. Active (BOOKED)
+    // bookings are still holding a slot seat, so release those first; otherwise deleting the
+    // account would leak capacity on upcoming slots.
+    @Transactional
+    public void deleteAccount(String email) {
+        UserEntity user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User no longer exists."));
+
+        List<BookingEntity> bookings = bookingRepository.findByUserId(user.getId());
+
+        // Group active bookings per slot so a slot with several of this user's bookings has its
+        // bookedCount decremented by the right amount in one update. Cancelled bookings already
+        // released their seat, and completed ones are in the past, so neither is touched.
+        bookings.stream()
+                .filter(booking -> "BOOKED".equals(booking.getStatus()))
+                .collect(Collectors.groupingBy(BookingEntity::getSlotId, Collectors.counting()))
+                .forEach((slotId, seatsHeld) -> slotRepository.findById(slotId).ifPresent(slot -> {
+                    slot.setBookedCount(Math.max(0, slot.getBookedCount() - seatsHeld.intValue()));
+                    slotRepository.save(slot);
+                }));
+
+        bookingRepository.deleteByUserId(user.getId());
+        userRepository.delete(user);
     }
 }

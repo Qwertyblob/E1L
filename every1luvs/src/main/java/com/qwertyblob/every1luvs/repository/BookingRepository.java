@@ -46,6 +46,12 @@ public interface BookingRepository extends JpaRepository<BookingEntity, Long> {
 
     void deleteBySlotId(Long slotId);
 
+    // Every booking ever made by a user, regardless of status or archive state — used when
+    // deleting an account so seats held by still-active bookings can be released first.
+    List<BookingEntity> findByUserId(Long userId);
+
+    void deleteByUserId(Long userId);
+
     Page<BookingEntity> findByArchivedAtIsNullOrderByCreatedAtDesc(Pageable pageable);
 
     // Bulk soft-archive of bookings whose appointment (slot end_time) passed the

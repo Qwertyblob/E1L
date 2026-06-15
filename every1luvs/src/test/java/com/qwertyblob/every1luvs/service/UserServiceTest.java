@@ -1,10 +1,15 @@
 package com.qwertyblob.every1luvs.service;
 
 import com.qwertyblob.every1luvs.dto.UserResponse;
+import com.qwertyblob.every1luvs.entity.BookingEntity;
+import com.qwertyblob.every1luvs.entity.SlotEntity;
 import com.qwertyblob.every1luvs.entity.UserEntity;
+import com.qwertyblob.every1luvs.repository.BookingRepository;
+import com.qwertyblob.every1luvs.repository.SlotRepository;
 import com.qwertyblob.every1luvs.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -20,12 +25,17 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
 
     @Mock UserRepository userRepository;
+    @Mock BookingRepository bookingRepository;
+    @Mock SlotRepository slotRepository;
 
     @InjectMocks UserService userService;
 
@@ -36,6 +46,20 @@ class UserServiceTest {
         user.setEmail(email);
         user.setRole(role);
         return user;
+    }
+
+    private static BookingEntity booking(Long slotId, String status) {
+        BookingEntity booking = new BookingEntity();
+        booking.setSlotId(slotId);
+        booking.setStatus(status);
+        return booking;
+    }
+
+    private static SlotEntity slot(Long id, int bookedCount) {
+        SlotEntity slot = new SlotEntity();
+        slot.setId(id);
+        slot.setBookedCount(bookedCount);
+        return slot;
     }
 
     @Test
@@ -83,5 +107,63 @@ class UserServiceTest {
         when(userRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
         assertThat(userService.listAll(pageable)).isEmpty();
+    }
+
+    // ─── deleteAccount ─────────────────────────────────────────────────────────────
+
+    @Test
+    void deleteAccount_releasesActiveSeatsThenDeletesBookingsAndUser() {
+        UserEntity alice = user(1L, "Alice", "alice@example.com", "USER");
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
+        // Two active bookings on slot 10, one on slot 20, plus a cancelled one that holds no seat.
+        when(bookingRepository.findByUserId(1L)).thenReturn(List.of(
+                booking(10L, "BOOKED"),
+                booking(10L, "BOOKED"),
+                booking(20L, "BOOKED"),
+                booking(20L, "CANCELLED")
+        ));
+        when(slotRepository.findById(10L)).thenReturn(Optional.of(slot(10L, 3)));
+        when(slotRepository.findById(20L)).thenReturn(Optional.of(slot(20L, 1)));
+
+        userService.deleteAccount("alice@example.com");
+
+        ArgumentCaptor<SlotEntity> savedSlots = ArgumentCaptor.forClass(SlotEntity.class);
+        verify(slotRepository, org.mockito.Mockito.times(2)).save(savedSlots.capture());
+        assertThat(savedSlots.getAllValues())
+                .extracting(SlotEntity::getId, SlotEntity::getBookedCount)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(10L, 1), // 3 - 2 active
+                        org.assertj.core.groups.Tuple.tuple(20L, 0)  // 1 - 1 active
+                );
+        verify(bookingRepository).deleteByUserId(1L);
+        verify(userRepository).delete(alice);
+    }
+
+    @Test
+    void deleteAccount_noActiveBookings_skipsSeatReleaseButStillDeletes() {
+        UserEntity alice = user(1L, "Alice", "alice@example.com", "USER");
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
+        when(bookingRepository.findByUserId(1L)).thenReturn(List.of(
+                booking(10L, "CANCELLED"),
+                booking(20L, "COMPLETED")
+        ));
+
+        userService.deleteAccount("alice@example.com");
+
+        verify(slotRepository, never()).save(org.mockito.ArgumentMatchers.any());
+        verify(bookingRepository).deleteByUserId(1L);
+        verify(userRepository).delete(alice);
+    }
+
+    @Test
+    void deleteAccount_missingUser_throwsUnauthorizedAndDeletesNothing() {
+        when(userRepository.findByEmail("ghost@example.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.deleteAccount("ghost@example.com"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.UNAUTHORIZED));
+
+        verifyNoInteractions(bookingRepository, slotRepository);
     }
 }
