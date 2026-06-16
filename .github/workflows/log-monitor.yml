@@ -20,6 +20,7 @@ jobs:
       contents: write          # create a branch + commit a fix
       pull-requests: write      # open the PR
       issues: write             # or open an issue for config/infra fixes
+      id-token: write          # needed for Gemini actions
     steps:
       - name: Check out the DEPLOYED commit
         uses: actions/checkout@v4
