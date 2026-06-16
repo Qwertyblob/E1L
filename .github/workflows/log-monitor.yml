@@ -36,7 +36,7 @@ jobs:
         run: printf '%s' "$CONTEXT_JSON" > "$RUNNER_TEMP/prod-error.json"
 
       - name: Diagnose with Gemini
-        uses: google-github-actions/run-gemini-cli@v1
+        uses: google-github-actions/run-gemini-cli@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GEMINI_YOLO_MODE: "true"
