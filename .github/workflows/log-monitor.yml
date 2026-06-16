@@ -35,14 +35,18 @@ jobs:
           CONTEXT_JSON: ${{ toJSON(github.event.client_payload) }}
         run: printf '%s' "$CONTEXT_JSON" > "$RUNNER_TEMP/prod-error.json"
 
-      - name: Diagnose with Claude Code
-        uses: anthropics/claude-code-action@v1
+      - name: Diagnose with Gemini
+        uses: google-github-actions/run-gemini-cli@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_YOLO_MODE: "true"
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: |
-            --model claude-sonnet-4-6
-            --max-turns 30
-            --allowedTools "Bash,Read,Edit,Write,Grep,Glob"
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          # claude_args: |
+          #  --model claude-sonnet-4-6
+          #  --max-turns 30
+          #  --allowedTools "Bash,Read,Edit,Write,Grep,Glob"
+          gemini_model: gemini-3.1-pro
           prompt: |
             A production error was detected on the live site (https://every1luvs.com). The
             machine-readable context is in the file at $RUNNER_TEMP/prod-error.json — read it
