@@ -47,7 +47,7 @@ jobs:
           #  --model claude-sonnet-4-6
           #  --max-turns 30
           #  --allowedTools "Bash,Read,Edit,Write,Grep,Glob"
-          gemini_model: "gemini-3.5-flash"
+          gemini_model: "gemini-3.5-pro-preview"
           prompt: |
             A production error was detected on the live site (https://every1luvs.com). The
             machine-readable context is in the file at $RUNNER_TEMP/prod-error.json — read it
