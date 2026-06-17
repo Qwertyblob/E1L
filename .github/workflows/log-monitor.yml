@@ -55,6 +55,13 @@ jobs:
             working tree), the primary service (app=Spring Boot backend, web=nginx/React,
             db=Postgres), error signature hashes, and a bounded log excerpt.
 
+            CRITICAL EXECUTION RULE: You are running non-interactively in CI. You MUST actually
+            EXECUTE every command with your shell tool. NEVER simulate, describe, print, or claim
+            to have done something you did not actually run — "simulating" an action is a FAILURE.
+            When the task is to open an issue, you must literally run `gh issue create ...` and report
+            the issue URL it returns. A synthetic/test event is NOT an exception: still create the
+            real issue, so the pipeline is verified end to end.
+
             Do this, in order:
             1. Read prod-error.json and study the log excerpt.
             2. IDEMPOTENCY CHECK — before doing anything else, run:
