@@ -16,6 +16,7 @@ web/build/
 
 # Local AI/dev tooling state — machine-specific, not part of the app
 .claude/
+CLAUDE.md
 .agents/
 .fallow/
 skills-lock.json
