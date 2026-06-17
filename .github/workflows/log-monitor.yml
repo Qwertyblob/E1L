@@ -33,7 +33,7 @@ jobs:
       - name: Write the error context to a file (avoids prompt-injection into YAML)
         env:
           CONTEXT_JSON: ${{ toJSON(github.event.client_payload) }}
-        run: printf '%s' "$CONTEXT_JSON" > "$RUNNER_TEMP/prod-error.json"
+        run: printf '%s' "$CONTEXT_JSON" > prod-error.json
 
       - name: Diagnose with Gemini
         uses: google-github-actions/run-gemini-cli@v0
@@ -50,13 +50,13 @@ jobs:
           gemini_model: "gemini-3.1-flash-lite"
           prompt: |
             A production error was detected on the live site (https://every1luvs.com). The
-            machine-readable context is in the file at $RUNNER_TEMP/prod-error.json — read it
+            machine-readable context is in the file at prod-error.json — read it
             first. It contains: the deployed commit SHA (already checked out as the current
             working tree), the primary service (app=Spring Boot backend, web=nginx/React,
             db=Postgres), error signature hashes, and a bounded log excerpt.
 
             Do this, in order:
-            1. Read $RUNNER_TEMP/prod-error.json and study the log excerpt.
+            1. Read prod-error.json and study the log excerpt.
             2. IDEMPOTENCY CHECK — before doing anything else, run:
                  gh pr list --state open --search "log-monitor in:title"
                  gh issue list --state open --label log-monitor
