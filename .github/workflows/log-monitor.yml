@@ -38,7 +38,7 @@ jobs:
       - name: Diagnose with Gemini
         uses: google-github-actions/run-gemini-cli@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GEMINI_YOLO_MODE: "true"
           GEMINI_CLI_TRUST_WORKSPACE: "true"
         with:
