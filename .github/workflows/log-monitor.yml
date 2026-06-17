@@ -1,94 +1,93 @@
-# AI log-monitor — DIAGNOSER. Woken by the VPS detector (scripts/log-monitor.sh) via a
-# `repository_dispatch` event of type `prod-error`. Checks out the EXACT deployed commit, then
-# runs Claude Code on the bundled prod error context to either open a PR (code fix) or an issue
-# (config/infra fix). The user reviews → merge → the existing CD (deploy.yml) ships it.
+# AI log-monitor — ALERTER. Woken by the VPS detector (scripts/log-monitor.sh) via a
+# `repository_dispatch` event of type `prod-error`. Deterministically opens (or, on a repeat,
+# comments on) a GitHub issue carrying the bundled prod-error context, so you get a push
+# notification (GitHub mobile / email) the moment a new error appears — no LLM in the path,
+# so it can't be rate-limited, can't "simulate", and costs nothing per run.
+#
+# Triage is yours: a code bug → open a fix PR; a config/infra problem → run the command on the
+# VPS. (An optional AI-diagnosis comment can be layered on later — see PR notes — but the alert
+# itself never depends on it.)
 name: AI Log Monitor
 
 on:
   repository_dispatch:
     types: [prod-error]
 
-# One diagnosis at a time.
+# One alert at a time; never cancel an in-flight issue write.
 concurrency:
   group: log-monitor
   cancel-in-progress: false
 
 jobs:
-  diagnose:
+  alert:
     runs-on: ubuntu-latest
     permissions:
-      contents: write          # create a branch + commit a fix
-      pull-requests: write      # open the PR
-      issues: write             # or open an issue for config/infra fixes
-      id-token: write          # needed for Gemini actions
+      issues: write            # the ONLY permission needed: open/comment the alert issue
     steps:
-      - name: Check out the DEPLOYED commit
-        uses: actions/checkout@v4
-        with:
-          # The detector bundles the running image's SHA so Claude reads the source that
-          # actually produced the error, not whatever is newest on main.
-          ref: ${{ github.event.client_payload.commit }}
-          fetch-depth: 0        # full history so Claude can branch/PR cleanly
-
-      - name: Write the error context to a file (avoids prompt-injection into YAML)
+      - name: Open or update the log-monitor issue
         env:
-          CONTEXT_JSON: ${{ toJSON(github.event.client_payload) }}
-        run: printf '%s' "$CONTEXT_JSON" > prod-error.json
-
-      - name: Diagnose with Gemini
-        uses: google-github-actions/run-gemini-cli@v0
-        env:
+          # GITHUB_TOKEN is auto-issued per run; exposed as GH_TOKEN so the gh CLI reads it.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GEMINI_YOLO_MODE: "true"
-          GEMINI_CLI_TRUST_WORKSPACE: "true"
-        with:
-          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          # claude_args: |
-          #  --model claude-sonnet-4-6
-          #  --max-turns 30
-          #  --allowedTools "Bash,Read,Edit,Write,Grep,Glob"
-          gemini_model: "gemini-3.1-flash-lite"
-          prompt: |
-            A production error was detected on the live site (https://every1luvs.com). The
-            machine-readable context is in the file at prod-error.json — read it
-            first. It contains: the deployed commit SHA (already checked out as the current
-            working tree), the primary service (app=Spring Boot backend, web=nginx/React,
-            db=Postgres), error signature hashes, and a bounded log excerpt.
+          # Whole payload as JSON — parsed with jq so nothing is interpolated into the script.
+          PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+        run: |
+          set -euo pipefail
 
-            CRITICAL EXECUTION RULE: You are running non-interactively in CI. You MUST actually
-            EXECUTE every command with your shell tool. NEVER simulate, describe, print, or claim
-            to have done something you did not actually run — "simulating" an action is a FAILURE.
-            When the task is to open an issue, you must literally run `gh issue create ...` and report
-            the issue URL it returns. A synthetic/test event is NOT an exception: still create the
-            real issue, so the pipeline is verified end to end.
+          commit=$(jq -r '.commit            // "unknown"' <<<"$PAYLOAD")
+          service=$(jq -r '.primary_service   // "app"'     <<<"$PAYLOAD")
+          host=$(jq -r '.host                 // "n/a"'     <<<"$PAYLOAD")
+          detected=$(jq -r '.detected_at      // "n/a"'     <<<"$PAYLOAD")
+          count=$(jq -r '.new_signature_count // "n/a"'     <<<"$PAYLOAD")
+          excerpt=$(jq -r '.log_excerpt       // ""'        <<<"$PAYLOAD")
+          sig=$(jq -r '(.signatures[0])       // empty'     <<<"$PAYLOAD")
 
-            Do this, in order:
-            1. Read prod-error.json and study the log excerpt.
-            2. IDEMPOTENCY CHECK — before doing anything else, run:
-                 gh pr list --state open --search "log-monitor in:title"
-                 gh issue list --state open --label log-monitor
-               If an open PR or issue already covers this same error signature/root cause,
-               STOP: add a one-line comment noting the new occurrence and exit. Do NOT open a
-               duplicate.
-            3. Trace the root cause in the checked-out source (Grep/Read the relevant files).
-               Stay grounded in the actual code — do not speculate beyond what the logs and
-               source support. If you cannot pin it down, open an issue (step 4, CONFIG path)
-               describing what you found and what evidence is missing.
-            4. Decide the fix type:
-               - CODE fix (a bug in app/ or client/ source): make the MINIMAL change, then:
-                   git checkout -b log-monitor/fix-<short-slug>
-                   git commit -am "Fix: <concise description>"
-                   git push -u origin HEAD
-                   gh pr create --title "[log-monitor] Fix: <concise description>" \
-                     --label log-monitor \
-                     --body "<root-cause analysis, the deployed commit, the log excerpt, and why this fix addresses it. Note that merging to main auto-deploys via CD.>"
-                 Do NOT push to main directly. Keep the diff small and focused on this error.
-               - CONFIG/INFRA fix (env var, docker-compose, nginx, Cloudflare, a server
-                 command — nothing in source can fix it): do NOT change code. Instead:
-                   gh issue create --title "[log-monitor] <concise description>" \
-                     --label log-monitor \
-                     --body "<root cause, the EXACT command(s) or config change the operator must run, the deployed commit, and the log excerpt.>"
-            5. Be concise and high-signal. The operator only wants to review and approve.
+          # Stable idempotency key: the first error signature from the detector, or — for
+          # payloads without one (e.g. the synthetic test) — a short hash of the excerpt.
+          if [ -z "$sig" ]; then
+            sig=$(printf '%s' "$excerpt" | sha256sum | cut -c1-12)
+          fi
+          title="[log-monitor] ${service}: ${sig}"
 
-            If the `log-monitor` label does not exist yet, create it first:
-              gh label create log-monitor --color B60205 --description "AI log-monitor" || true
+          body=$(cat <<EOF
+          **Production error detected** by the VPS log-monitor on https://every1luvs.com.
+
+          | Field | Value |
+          |---|---|
+          | Service | \`${service}\` |
+          | Deployed commit | \`${commit}\` |
+          | Host | \`${host}\` |
+          | Detected at | ${detected} |
+          | New signatures this dispatch | ${count} |
+          | Signature key | \`${sig}\` |
+
+          <details><summary>Log excerpt</summary>
+
+          \`\`\`
+          ${excerpt}
+          \`\`\`
+          </details>
+
+          ---
+          _Filed automatically by \`.github/workflows/log-monitor.yml\`._
+          **Triage:** if this is a code bug, open a fix PR against \`main\` (merging auto-deploys via CD);
+          if it's config/infra, run the needed command on the VPS, then close this issue.
+          EOF
+          )
+
+          # Idempotent: ensure the label exists, then comment on the matching open issue if one
+          # exists, else open a fresh one. (The detector also dedupes upstream for 6h, so this is
+          # belt-and-suspenders against state resets / concurrent dispatches.)
+          gh label create log-monitor --color B60205 --description "AI log-monitor" 2>/dev/null || true
+
+          existing=$(gh issue list --state open --label log-monitor \
+            --json number,title \
+            --jq "map(select(.title == \"${title}\")) | .[0].number // empty")
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" \
+              --body "🔁 Recurred — detected at ${detected} on commit \`${commit}\` (${count} new signature(s) this dispatch)."
+            echo "Commented on existing issue #${existing}."
+          else
+            url=$(gh issue create --title "$title" --label log-monitor --body "$body")
+            echo "Opened issue: $url"
+          fi
