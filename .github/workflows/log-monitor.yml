@@ -28,6 +28,8 @@ jobs:
         env:
           # GITHUB_TOKEN is auto-issued per run; exposed as GH_TOKEN so the gh CLI reads it.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No checkout in this job, so gh can't infer the repo from a local .git — name it.
+          GH_REPO: ${{ github.repository }}
           # Whole payload as JSON — parsed with jq so nothing is interpolated into the script.
           PAYLOAD: ${{ toJSON(github.event.client_payload) }}
         run: |
