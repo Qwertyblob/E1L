@@ -1,5 +1,5 @@
+import { useState } from 'react';
 import { FaInstagram } from 'react-icons/fa';
-import { FaMapMarkerAlt } from 'react-icons/fa';
 import imgBackground from './assets/images/background.jpg';
 import imgExpressManicure from './assets/images/Express_Manicure.jpg';
 import imgClassicManicure from './assets/images/Classic_Manicure.jpg';
@@ -81,6 +81,13 @@ function LandingView({
   onNextSlide,
   onSelectSlide,
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = () => setMenuOpen(false);
+  const handleNav = (action) => () => {
+    closeMenu();
+    action();
+  };
+
   return (
     <div className="landing">
       {authModal}
@@ -90,14 +97,14 @@ function LandingView({
         <button className="landing-logo" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} type="button">
           <img alt="Every1 Luvs Nails" className="logo-nav" src={logoBlack} />
         </button>
-        <div className="landing-nav-links">
-          <button className="nav-text-link" onClick={() => scrollToSection('services')} type="button">Services</button>
-          <button className="nav-text-link" onClick={() => scrollToSection('about')} type="button">About</button>
-          <button className="nav-text-link" onClick={() => scrollToSection('contact')} type="button">Contact</button>
+        <div className={`landing-nav-links${menuOpen ? ' landing-nav-links--open' : ''}`} id="landing-nav-menu">
+          <button className="nav-text-link" onClick={handleNav(() => scrollToSection('services'))} type="button">Services</button>
+          <button className="nav-text-link" onClick={handleNav(() => scrollToSection('about'))} type="button">About</button>
+          <button className="nav-text-link" onClick={handleNav(() => scrollToSection('contact'))} type="button">Contact</button>
           {user ? (
             <button
               className="nav-tab-link"
-              onClick={onProfileClick}
+              onClick={handleNav(onProfileClick)}
               type="button"
             >
               My Profile
@@ -105,24 +112,31 @@ function LandingView({
           ) : (
             <button
               className="nav-tab-link"
-              onClick={onSignIn}
+              onClick={handleNav(onSignIn)}
               type="button"
             >
               Sign In
             </button>
           )}
         </div>
-        <button className="pill-button" onClick={onBook} type="button">Book Now</button>
+        <button className="pill-button landing-nav-book" onClick={onBook} type="button">Book Now</button>
+        <button
+          aria-controls="landing-nav-menu"
+          aria-expanded={menuOpen}
+          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+          className={`landing-nav-toggle${menuOpen ? ' landing-nav-toggle--open' : ''}`}
+          onClick={() => setMenuOpen((open) => !open)}
+          type="button"
+        >
+          <span className="landing-nav-toggle-bar" />
+          <span className="landing-nav-toggle-bar" />
+          <span className="landing-nav-toggle-bar" />
+        </button>
       </nav>
 
       {/* ── Hero ── */}
       <section className="hero-section">
         <div className="hero-content">
-          <div className="hero-pills">
-            <span className="hero-pill">💅 Nail Studio</span>
-            <span className="hero-pill">&#10022; CoolSculpting Fat Freeze Studio</span>
-            <span className="hero-pill"><FaMapMarkerAlt /> Toa Payoh, Singapore</span>
-          </div>
           <img alt="Every1 Luvs Nails" className="logo-hero" src={logoBlack} />
           <p className="hero-tagline">Where every detail <em>is loved</em></p>
           <p className="hero-body">Premium nail care and CoolSculpting fat freeze treatments crafted for you. From everyday manicures to stunning extensions and body contouring — your story, your way.</p>

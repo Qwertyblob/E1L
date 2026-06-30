@@ -389,6 +389,7 @@
 .bk-success .bk-btn { margin-top: 24px; width: 100%; }
 
 @media (max-width: 540px) {
+  .bk-backdrop { padding: 12px; }
   .bk-tech-grid { grid-template-columns: 1fr; }
   .bk-time-grid { grid-template-columns: repeat(4, 1fr); }
   .bk-stepper { padding: 18px 20px 16px; }
