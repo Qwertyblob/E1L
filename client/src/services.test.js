@@ -1,4 +1,4 @@
-import { NAIL_SERVICES, COOL_SERVICES, NAIL_ART, REMOVAL } from './services';
+import { NAIL_SERVICES, NAIL_ART, REMOVAL } from './services';
 
 describe('services catalog data integrity', () => {
   test('every nail service has a unique id', () => {
@@ -18,7 +18,7 @@ describe('services catalog data integrity', () => {
   });
 
   test('senior price is never below junior price', () => {
-    for (const service of [...NAIL_SERVICES, ...COOL_SERVICES]) {
+    for (const service of NAIL_SERVICES) {
       expect(service.senior).toBeGreaterThanOrEqual(service.junior);
     }
   });

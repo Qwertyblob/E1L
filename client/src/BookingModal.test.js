@@ -97,16 +97,6 @@ describe('BookingModal — step gating (canContinue)', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
   });
 
-  test('switching category resets the selected service', async () => {
-    renderModal();
-    await userEvent.click(screen.getByRole('button', { name: /^Classic Manicure/ }));
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
-
-    await userEvent.click(screen.getByRole('button', { name: /CoolSculpting Fat Freeze/ }));
-    // service cleared → continue disabled again
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
-  });
-
   test('T&C step blocks continue until the box is checked', async () => {
     renderModal();
     await toAddonsStep();

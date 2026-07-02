@@ -1242,72 +1242,6 @@ input:focus {
   z-index: 1;
 }
 
-/* ── CoolSculpting ── */
-.cool-section {
-  align-items: center;
-  background: var(--charcoal);
-  color: var(--charcoal-text);
-  display: grid;
-  gap: 64px;
-  grid-template-columns: 1fr 0.75fr;
-  padding: 96px 48px;
-}
-.cool-content { display: grid; gap: 24px; }
-.cool-body {
-  color: rgba(232, 227, 219, 0.72);
-  font-size: 1rem;
-  line-height: 1.7;
-  margin: 0;
-  max-width: 480px;
-}
-.cool-offer-box {
-  background: rgba(241, 189, 69, 0.12);
-  border: 1px solid rgba(241, 189, 69, 0.3);
-  border-radius: 12px;
-  padding: 20px 24px;
-  display: grid;
-  gap: 6px;
-}
-.cool-offer-label {
-  color: var(--gold);
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  margin: 0;
-  text-transform: uppercase;
-}
-.cool-offer-price {
-  color: #fff;
-  font-family: var(--serif-font);
-  font-size: 1.5rem;
-  font-weight: 700;
-  margin: 0;
-}
-.cool-offer-note {
-  color: rgba(232, 227, 219, 0.55);
-  font-size: 0.82rem;
-  line-height: 1.55;
-  margin: 0;
-}
-.cool-feature-pills { display: flex; flex-wrap: wrap; gap: 8px; }
-.cool-feature-pill {
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  padding: 5px 14px;
-}
-.cool-instagram { color: rgba(232, 227, 219, 0.5); font-size: 0.9rem; margin: 0; }
-.cool-photo-placeholder {
-  background: linear-gradient(135deg,
-    rgba(241, 189, 69, 0.1),
-    rgba(8, 127, 131, 0.14));
-  border-radius: 20px;
-  height: 440px;
-  width: 100%;
-}
-
 /* ── Services ── */
 .services-section { padding: 96px 48px; }
 
@@ -1769,12 +1703,6 @@ input:focus {
     z-index: 1;
   }
   .hero-content { max-width: 100%; position: relative; z-index: 2; }
-
-  .cool-section {
-    grid-template-columns: 1fr;
-    padding: 72px 24px;
-  }
-  .cool-photo-placeholder { display: none; }
 
   .services-section { padding: 72px 24px; }
   .service-card-grid { grid-template-columns: 1fr; }

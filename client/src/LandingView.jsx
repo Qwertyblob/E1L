@@ -139,32 +139,10 @@ function LandingView({
         <div className="hero-content">
           <img alt="Every1 Luvs Nails" className="logo-hero" src={logoBlack} />
           <p className="hero-tagline">Where every detail <em>is loved</em></p>
-          <p className="hero-body">Premium nail care and CoolSculpting fat freeze treatments crafted for you. From everyday manicures to stunning extensions and body contouring — your story, your way.</p>
+          <p className="hero-body">Premium nail care crafted for you. From everyday manicures to stunning extensions — your story, your way.</p>
           <button className="pill-button hero-cta" onClick={onBook} type="button">Book an Appointment</button>
         </div>
         <img alt="" aria-hidden="true" className="hero-photo" src={imgBackground} />
-      </section>
-
-      {/* ── CoolSculpting ── */}
-      <section className="cool-section">
-        <div className="cool-content">
-          <p className="section-eyebrow light">Body Studio &middot; Toa Payoh</p>
-          <h2 className="section-heading light">CoolSculpting<br />Fat Freeze</h2>
-          <p className="cool-body">Clinically-proven cryolipolysis treatments to target stubborn fat — safely, comfortably, and without downtime. Our CoolSculpting studio is situated in the heart of Toa Payoh, Singapore.</p>
-          <div className="cool-offer-box">
-            <p className="cool-offer-label">&#10022; Opening Offer — Limited Time</p>
-            <p className="cool-offer-price">1 Session &middot; S$40</p>
-            <p className="cool-offer-note">This is a special opening offer and is available for a limited time only. Up to 10 sessions per customer. Regular pricing applies thereafter.</p>
-          </div>
-          <div className="cool-feature-pills">
-            <span className="cool-feature-pill">No surgery</span>
-            <span className="cool-feature-pill">No downtime</span>
-            <span className="cool-feature-pill">FDA-cleared tech</span>
-            <span className="cool-feature-pill">Results in 8–12 weeks</span>
-          </div>
-          {/* <p className="cool-instagram">&#64;every1luvs.co</p> */}
-        </div>
-        <div className="cool-photo-placeholder" aria-hidden="true" />
       </section>
 
       {/* ── Services ── */}
@@ -297,8 +275,8 @@ function LandingView({
           <p className="section-eyebrow">Our Studio</p>
           <h2 className="section-heading">A space where <em>everyone is loved</em></h2>
           <p className="about-location"><WaypointIcon />Heart of Toa Payoh, Singapore</p>
-          <p className="about-body">every1luvs is a premium nail and CoolSculpting studio built on a simple truth: great beauty services are for everyone. Whether it's a clean classic manicure or a full Après Gel X set with intricate art, we give every client the same care and attention to detail.</p>
-          <p className="about-body">We use only premium gel systems and take pride in healthy nail practices — no damage, no shortcuts. Our CoolSculpting treatments use clinically-proven cryolipolysis technology.</p>
+          <p className="about-body">every1luvs is a premium nail studio built on a simple truth: great beauty services are for everyone. Whether it's a clean classic manicure or a full Après Gel X set with intricate art, we give every client the same care and attention to detail.</p>
+          <p className="about-body">We use only premium gel systems and take pride in healthy nail practices — no damage, no shortcuts.</p>
         </div>
         <div className="about-values">
           {[
@@ -332,7 +310,7 @@ function LandingView({
         <div className="footer-grid">
           <div className="footer-brand">
             <img alt="Every1 Luvs Nails" className="logo-footer" src={logoWhite} />
-            <p className="footer-tagline">Premium nail &amp; CoolSculpting studio in Toa Payoh, Singapore.</p>
+            <p className="footer-tagline">Premium nail studio in Toa Payoh, Singapore.</p>
           </div>
           <div>
             <h4>Studio Hours</h4>
@@ -349,12 +327,6 @@ function LandingView({
                 <a href="https://instagram.com/every1luvsnails" target="_blank" rel="noopener noreferrer">
                   <FaInstagram />
                   <span>&#64;every1luvsnails &middot; Nails</span>
-                </a>
-              </li>
-              <li>
-                <a href="https://instagram.com/every1luvs.co" target="_blank" rel="noopener noreferrer">
-                  <FaInstagram />
-                  <span>&#64;every1luvs.co &middot; CoolSculpting</span>
                 </a>
               </li>
             </ul>

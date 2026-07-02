@@ -25,10 +25,8 @@ public final class BookingCatalog {
 
     /**
      * A bookable service with its junior/senior technician prices (SGD, whole dollars).
-     * {@code supportsAddOns} is true only for nail services; CoolSculpting (and any other
-     * non-nail service) cannot take nail-art / removal add-ons.
      */
-    public record Service(String id, String name, int junior, int senior, int durationMin, boolean supportsAddOns) {
+    public record Service(String id, String name, int junior, int senior, int durationMin) {
     }
 
     /** A priced add-on (nail-art tier or removal option). {@code durationMin} is the extra time it adds. */
@@ -49,7 +47,7 @@ public final class BookingCatalog {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record CatalogData(List<RawService> NAIL_SERVICES, List<RawService> COOL_SERVICES,
+    private record CatalogData(List<RawService> NAIL_SERVICES,
                                List<RawAddOn> NAIL_ART, List<RawAddOn> REMOVAL) {
     }
 
@@ -59,7 +57,7 @@ public final class BookingCatalog {
 
     static {
         CatalogData data = loadCatalog();
-        SERVICES = services(data.NAIL_SERVICES(), data.COOL_SERVICES());
+        SERVICES = services(data.NAIL_SERVICES());
         // Nail-art names are already distinct (Tier 1/2/3), so use them verbatim.
         NAIL_ART = addOns(data.NAIL_ART(), false);
         // Removal names collide ("Gel / Hard Gel" by-us vs by-others), so disambiguate with
@@ -106,21 +104,14 @@ public final class BookingCatalog {
         }
     }
 
-    private static Map<String, Service> services(List<RawService> nailServices, List<RawService> coolServices) {
+    private static Map<String, Service> services(List<RawService> nailServices) {
         Map<String, Service> map = new LinkedHashMap<>();
-        // Nail services accept nail-art + removal add-ons; CoolSculpting services do not.
-        putServices(map, nailServices, true);
-        putServices(map, coolServices, false);
+        if (nailServices != null) {
+            for (RawService raw : nailServices) {
+                map.put(raw.id(), new Service(raw.id(), raw.name(), raw.junior(), raw.senior(), raw.durationMin()));
+            }
+        }
         return Map.copyOf(map);
-    }
-
-    private static void putServices(Map<String, Service> map, List<RawService> group, boolean supportsAddOns) {
-        if (group == null) {
-            return;
-        }
-        for (RawService raw : group) {
-            map.put(raw.id(), new Service(raw.id(), raw.name(), raw.junior(), raw.senior(), raw.durationMin(), supportsAddOns));
-        }
     }
 
     private static Map<String, AddOn> addOns(List<RawAddOn> items, boolean disambiguateWithSub) {

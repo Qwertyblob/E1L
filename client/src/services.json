@@ -43,17 +43,6 @@
       "popular": true
     }
   ],
-  "COOL_SERVICES": [
-    {
-      "id": "coolsculpting",
-      "name": "CoolSculpting Fat Freeze",
-      "desc": "Clinically-proven cryolipolysis to target stubborn fat — no surgery, no downtime. Opening offer, limited time.",
-      "duration": "~60 min",
-      "durationMin": 60,
-      "junior": 40,
-      "senior": 40
-    }
-  ],
   "NAIL_ART": [
     { "id": "none", "name": "No design (plain colour only)", "price": 0, "durationMin": 0 },
     { "id": "tier1", "name": "Tier 1 — Simple", "sub": "Solid colour accents, minimal line art, single-nail detail.", "price": 12, "time": "+35 mins", "durationMin": 35 },

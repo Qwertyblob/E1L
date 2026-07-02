@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import './BookingModal.css';
 import { getCalendarDays } from './slotBuilderUtils';
-import { COOL_SERVICES, NAIL_ART, NAIL_SERVICES, REMOVAL } from './services';
+import { NAIL_ART, NAIL_SERVICES, REMOVAL } from './services';
 import { useFocusTrap } from './useFocusTrap';
 
 // Relative base so requests go through the dev-server proxy (same-origin). See App.jsx.
@@ -87,13 +87,9 @@ function Stepper({ step }) {
 }
 
 // Step 0 — Service
-function ServiceStep({ category, selectCategory, services, serviceId, selectService }) {
+function ServiceStep({ services, serviceId, selectService }) {
   return (
     <>
-      <div className="bk-cat-toggle">
-        <button className={category === 'nails' ? 'active' : ''} onClick={() => selectCategory('nails')} type="button">💅 Nails</button>
-        <button className={category === 'cool' ? 'active' : ''} onClick={() => selectCategory('cool')} type="button">✦ CoolSculpting Fat Freeze</button>
-      </div>
       <div className="bk-service-list">
         {services.map((s) => (
           <button
@@ -154,42 +150,36 @@ function TechnicianStep({ technician, setTechnician, service }) {
 }
 
 // Step 2 — Add-ons
-function AddOnsStep({ category, nailArt, setNailArt, removal, setRemoval, total }) {
+function AddOnsStep({ nailArt, setNailArt, removal, setRemoval, total }) {
   return (
     <>
-      {category === 'nails' ? (
-        <>
-          <p className="bk-prompt">Customise your appointment. All add-ons are optional.</p>
-          <p className="bk-section-label">Nail Art Design</p>
-          <div className="bk-option-list">
-            {NAIL_ART.map((a) => (
-              <button className={`bk-option${nailArt === a.id ? ' bk-option--selected' : ''}`} key={a.id} onClick={() => setNailArt(a.id)} type="button">
-                <div className="bk-option-info">
-                  <span className="bk-option-name">{a.name}{a.time && <span className="bk-option-time">{a.time}</span>}</span>
-                  {a.sub && <span className="bk-option-sub">{a.sub}</span>}
-                </div>
-                {a.price > 0 && <span className="bk-option-price">from S${a.price}</span>}
-                {nailArt === a.id && <CheckIcon className="bk-option-check" />}
-              </button>
-            ))}
-          </div>
-          <p className="bk-section-label">Removal <span className="bk-muted">(if applicable)</span></p>
-          <div className="bk-option-list">
-            {REMOVAL.map((r) => (
-              <button className={`bk-option${removal === r.id ? ' bk-option--selected' : ''}`} key={r.id} onClick={() => setRemoval(r.id)} type="button">
-                <div className="bk-option-info">
-                  <span className="bk-option-name">{r.name}{r.time && <span className="bk-option-time">{r.time}</span>}</span>
-                  {r.sub && <span className="bk-option-sub">{r.sub}</span>}
-                </div>
-                {r.price > 0 && <span className="bk-option-price">+S${r.price}</span>}
-                {removal === r.id && <CheckIcon className="bk-option-check" />}
-              </button>
-            ))}
-          </div>
-        </>
-      ) : (
-        <p className="bk-prompt">No add-ons are available for CoolSculpting Fat Freeze. Continue to choose your date &amp; time.</p>
-      )}
+      <p className="bk-prompt">Customise your appointment. All add-ons are optional.</p>
+      <p className="bk-section-label">Nail Art Design</p>
+      <div className="bk-option-list">
+        {NAIL_ART.map((a) => (
+          <button className={`bk-option${nailArt === a.id ? ' bk-option--selected' : ''}`} key={a.id} onClick={() => setNailArt(a.id)} type="button">
+            <div className="bk-option-info">
+              <span className="bk-option-name">{a.name}{a.time && <span className="bk-option-time">{a.time}</span>}</span>
+              {a.sub && <span className="bk-option-sub">{a.sub}</span>}
+            </div>
+            {a.price > 0 && <span className="bk-option-price">from S${a.price}</span>}
+            {nailArt === a.id && <CheckIcon className="bk-option-check" />}
+          </button>
+        ))}
+      </div>
+      <p className="bk-section-label">Removal <span className="bk-muted">(if applicable)</span></p>
+      <div className="bk-option-list">
+        {REMOVAL.map((r) => (
+          <button className={`bk-option${removal === r.id ? ' bk-option--selected' : ''}`} key={r.id} onClick={() => setRemoval(r.id)} type="button">
+            <div className="bk-option-info">
+              <span className="bk-option-name">{r.name}{r.time && <span className="bk-option-time">{r.time}</span>}</span>
+              {r.sub && <span className="bk-option-sub">{r.sub}</span>}
+            </div>
+            {r.price > 0 && <span className="bk-option-price">+S${r.price}</span>}
+            {removal === r.id && <CheckIcon className="bk-option-check" />}
+          </button>
+        ))}
+      </div>
       <div className="bk-estimate">
         <span>Estimated total</span>
         <span>S${total}</span>
@@ -337,7 +327,6 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   const [step, setStep] = useState(0);
   const [done, setDone] = useState(false);
 
-  const [category, setCategory] = useState('nails');
   const [serviceId, setServiceId] = useState(null);
   const [technician, setTechnician] = useState('junior');
   const [nailArt, setNailArt] = useState('none');
@@ -400,9 +389,9 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
 
   const availableTimes = date ? (availabilityByDate[date] || []) : [];
 
-  const services = category === 'nails' ? NAIL_SERVICES : COOL_SERVICES;
+  const services = NAIL_SERVICES;
   const service = useMemo(
-    () => [...NAIL_SERVICES, ...COOL_SERVICES].find((s) => s.id === serviceId) || null,
+    () => NAIL_SERVICES.find((s) => s.id === serviceId) || null,
     [serviceId],
   );
 
@@ -423,14 +412,6 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
 
   function selectService(id) {
     setServiceId(id);
-  }
-
-  function selectCategory(cat) {
-    if (cat === category) return;
-    setCategory(cat);
-    setServiceId(null);
-    setNailArt('none');
-    setRemoval('none');
   }
 
   function prevMonth() {
@@ -516,15 +497,12 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
             <div className="bk-body">
               {[
                 <ServiceStep
-                  category={category}
-                  selectCategory={selectCategory}
                   services={services}
                   serviceId={serviceId}
                   selectService={selectService}
                 />,
                 <TechnicianStep technician={technician} setTechnician={setTechnician} service={service} />,
                 <AddOnsStep
-                  category={category}
                   nailArt={nailArt}
                   setNailArt={setNailArt}
                   removal={removal}
