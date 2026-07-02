@@ -27,7 +27,7 @@ public class BookingMailService {
     private static final DateTimeFormatter SLOT_FORMAT =
             DateTimeFormatter.ofPattern("EEE, d MMM yyyy, h:mm a", Locale.ENGLISH).withZone(ZoneOffset.UTC);
 
-    // "none" add-on display names (from services.json) — skip these lines so a plain/CoolSculpting
+    // "none" add-on display names (from services.json) — skip these lines so a plain
     // booking doesn't show empty add-ons.
     private static final String NO_NAIL_ART = "No design (plain colour only)";
     private static final String NO_REMOVAL = "No removal needed";

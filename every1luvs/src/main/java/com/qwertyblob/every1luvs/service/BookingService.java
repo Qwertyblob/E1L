@@ -213,16 +213,6 @@ public class BookingService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Unknown removal selection."));
 
-        // Non-nail services (e.g. CoolSculpting) can't carry nail-art / removal add-ons, so
-        // reject anything other than the "none" default rather than recording a nonsensical
-        // CoolSculpting + nail-art booking and total.
-        if (!service.supportsAddOns()
-                && (!BookingCatalog.DEFAULT_ADD_ON.equals(nailArt.id())
-                    || !BookingCatalog.DEFAULT_ADD_ON.equals(removal.id()))) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Add-ons are not available for this service.");
-        }
-
         int total = BookingCatalog.servicePrice(service, request.technicianLevel())
                 + nailArt.price() + removal.price();
         return new BookingQuote(service.name(), BookingCatalog.technicianLabel(request.technicianLevel()),
