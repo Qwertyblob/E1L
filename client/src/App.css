@@ -1362,20 +1362,9 @@ input:focus {
   gap: 2px;
   padding: 10px 14px;
 }
-.price-box--junior {
+.price-box--single {
   background: var(--cream);
   border: 1px solid var(--line);
-}
-.price-box--senior {
-  background: var(--charcoal);
-  color: #fff;
-}
-.price-box-label {
-  font-size: 0.65rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  opacity: 0.6;
-  text-transform: uppercase;
 }
 .price-box-value {
   font-family: var(--serif-font);

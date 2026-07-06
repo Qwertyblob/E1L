@@ -33,12 +33,10 @@ function renderModal(props = {}) {
 
 const clickContinue = () => userEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
-// Advance: service (step0) → technician (step1) → add-ons (step2).
-// Service/tech names are anchored to avoid matching "Structured Classic Manicure".
-async function toAddonsStep(serviceName = /^Classic Manicure/, tech) {
+// Advance: service (step0) → add-ons (step1).
+// The service name is anchored to avoid matching "Structured Classic Manicure".
+async function toAddonsStep(serviceName = /^Classic Manicure/) {
   await userEvent.click(screen.getByRole('button', { name: serviceName }));
-  await clickContinue();
-  if (tech) await userEvent.click(screen.getByRole('button', { name: tech }));
   await clickContinue();
 }
 
@@ -51,26 +49,18 @@ afterEach(() => {
 });
 
 describe('BookingModal — pricing logic', () => {
-  test('total = junior base + nail art + removal', async () => {
+  test('total = service base + nail art + removal', async () => {
     renderModal();
-    await toAddonsStep(); // Classic Manicure, junior = 48
+    await toAddonsStep(); // Classic Manicure = 58
 
     const estimate = () => screen.getByText('Estimated total').closest('.bk-estimate');
-    expect(within(estimate()).getByText('S$48')).toBeInTheDocument();
+    expect(within(estimate()).getByText('S$58')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /Tier 2 — Layered/ })); // +25
-    expect(within(estimate()).getByText('S$73')).toBeInTheDocument();
+    expect(within(estimate()).getByText('S$83')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /Extensions.*Done by every1luvs/ })); // +10
-    expect(within(estimate()).getByText('S$83')).toBeInTheDocument();
-  });
-
-  test('senior technician uses the senior base price', async () => {
-    renderModal();
-    await toAddonsStep(/^Classic Manicure/, /^Senior/); // senior = 58
-
-    const estimate = screen.getByText('Estimated total').closest('.bk-estimate');
-    expect(within(estimate).getByText('S$58')).toBeInTheDocument();
+    expect(within(estimate()).getByText('S$93')).toBeInTheDocument();
   });
 
   test('estimated appointment duration includes selected add-on durations', async () => {
@@ -100,11 +90,11 @@ describe('BookingModal — step gating (canContinue)', () => {
   test('T&C step blocks continue until the box is checked', async () => {
     renderModal();
     await toAddonsStep();
-    await clickContinue(); // → date & time (step 3)
+    await clickContinue(); // → date & time (step 2)
 
     await userEvent.click(await screen.findByRole('button', { name: '15' }));
     await userEvent.click(screen.getByRole('button', { name: '10:00' }));
-    await clickContinue(); // → T&C (step 4)
+    await clickContinue(); // → T&C (step 3)
 
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
     await userEvent.click(screen.getByRole('checkbox'));
@@ -116,7 +106,7 @@ describe('BookingModal — availability mapping', () => {
   test('only available slots are offered, sorted, and unavailable days are disabled', async () => {
     renderModal();
     await toAddonsStep();
-    await clickContinue(); // step 3
+    await clickContinue(); // step 2 — date & time
 
     // Day 15 has slots → enabled; an empty day (e.g. 20) → disabled.
     expect(await screen.findByRole('button', { name: '15' })).toBeEnabled();
@@ -138,13 +128,13 @@ describe('BookingModal — availability mapping', () => {
 
 describe('BookingModal — confirm flow', () => {
   async function driveToConfirm() {
-    await toAddonsStep(); // Classic Manicure, junior
-    await clickContinue(); // step 3
+    await toAddonsStep(); // Classic Manicure
+    await clickContinue(); // step 2 — date & time
     await userEvent.click(await screen.findByRole('button', { name: '15' }));
     await userEvent.click(screen.getByRole('button', { name: '10:00' }));
-    await clickContinue(); // step 4
+    await clickContinue(); // step 3 — T&C
     await userEvent.click(screen.getByRole('checkbox'));
-    await clickContinue(); // step 5
+    await clickContinue(); // step 4 — details
   }
 
   test('confirm resolves the matching slot id and submits the expected payload', async () => {
@@ -159,10 +149,9 @@ describe('BookingModal — confirm flow', () => {
     expect(onConfirm).toHaveBeenCalledWith(
       expect.objectContaining({
         slotId: 102, // the 10:00 slot
-        total: 48,
+        total: 58,
         deposit: 30,
         serviceId: 'classic',
-        technicianLevel: 'junior',
         nailArtId: 'none',
         removalId: 'none',
         time: '10:00',
@@ -210,7 +199,7 @@ describe('BookingModal — slots fetch failure is non-fatal', () => {
     global.fetch = jest.fn(() => Promise.reject(new Error('network')));
     renderModal();
     await toAddonsStep();
-    await clickContinue(); // step 3
+    await clickContinue(); // step 2 — date & time
 
     // every day cell is disabled because no slots loaded
     const day15 = await screen.findByRole('button', { name: '15' });

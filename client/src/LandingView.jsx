@@ -174,13 +174,8 @@ function LandingView({
                 <h3 className="service-card-title">{svc.name}</h3>
                 <p className="service-card-desc">{svc.desc}</p>
                 <div className="service-price-row">
-                  <div className="price-box price-box--junior">
-                    <span className="price-box-label">Junior</span>
-                    <span className="price-box-value">S${svc.junior}</span>
-                  </div>
-                  <div className="price-box price-box--senior">
-                    <span className="price-box-label">Senior</span>
-                    <span className="price-box-value">S${svc.senior}</span>
+                  <div className="price-box price-box--single">
+                    <span className="price-box-value">S${svc.price}</span>
                   </div>
                 </div>
                 <div className="service-card-footer">

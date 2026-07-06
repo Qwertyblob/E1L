@@ -44,8 +44,8 @@ class BookingServiceTest {
 
     // ─── createBooking ────────────────────────────────────────────────────────────
 
-    // A valid catalog selection (classic / junior / no add-ons) for tests exercising
-    // flow beyond the catalog price check. classic-junior = 48.
+    // A valid catalog selection (classic / no add-ons) for tests exercising
+    // flow beyond the catalog price check. classic = 58.
     private static CreateBookingRequest authBooking(Long slotId) {
         return new CreateBookingRequest(slotId, null, null, null, null, null,
                 null, null, null, null, null,
@@ -72,9 +72,8 @@ class BookingServiceTest {
 
         BookingResponse response = bookingService.createBooking(request, "alice@example.com");
 
-        assertThat(response.totalPrice()).isEqualTo(81); // classic junior 48 + tier2 25 + self-gel 8
+        assertThat(response.totalPrice()).isEqualTo(91); // classic 58 + tier2 25 + self-gel 8
         assertThat(response.serviceName()).isEqualTo("Classic Manicure");
-        assertThat(response.technician()).isEqualTo("Junior Technician");
         assertThat(response.nailArt()).isEqualTo("Tier 2 — Layered");
         assertThat(response.removal()).isEqualTo("Gel / Hard Gel — Done by every1luvs");
     }

@@ -165,7 +165,6 @@
 .bk-service-desc { color: var(--muted); font-size: 0.85rem; line-height: 1.5; margin: 0; }
 .bk-service-duration { color: var(--muted); font-size: 0.8rem; }
 .bk-service-price { align-items: flex-end; display: flex; flex-direction: column; flex-shrink: 0; position: relative; }
-.bk-from { color: var(--muted); font-size: 0.72rem; }
 .bk-price { font-family: var(--serif-font); font-size: 1.1rem; font-weight: 700; }
 .bk-service-check { color: var(--charcoal); margin-top: 8px; }
 .bk-popular {
@@ -179,28 +178,6 @@
   text-transform: uppercase;
 }
 
-/* Technician */
-.bk-tech-grid { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
-.bk-tech {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  cursor: pointer;
-  display: grid;
-  gap: 10px;
-  padding: 20px;
-  position: relative;
-  text-align: left;
-}
-.bk-tech:hover { border-color: rgba(26, 24, 22, 0.35); }
-.bk-tech--selected { background: var(--cream); border-color: var(--charcoal); }
-.bk-tech-name { font-family: var(--serif-font); font-size: 1.2rem; font-weight: 700; }
-.bk-tech-desc { color: var(--muted); font-size: 0.83rem; line-height: 1.5; margin: 0; }
-.bk-tech-price { font-family: var(--serif-font); font-size: 1.2rem; font-weight: 700; }
-.bk-tech-check { color: var(--charcoal); position: absolute; right: 16px; top: 16px; }
-.bk-help { background: var(--cream); border-radius: 12px; margin-top: 18px; padding: 16px 18px; }
-.bk-help-title { font-size: 0.8rem; font-weight: 800; letter-spacing: 0.04em; margin: 0 0 6px; text-transform: uppercase; }
-.bk-help-text { color: var(--muted); font-size: 0.84rem; line-height: 1.55; margin: 0; }
 
 /* Options (add-ons) */
 .bk-option-list { display: grid; gap: 10px; }
@@ -390,7 +367,6 @@
 
 @media (max-width: 540px) {
   .bk-backdrop { padding: 12px; }
-  .bk-tech-grid { grid-template-columns: 1fr; }
   .bk-time-grid { grid-template-columns: repeat(4, 1fr); }
   .bk-stepper { padding: 18px 20px 16px; }
   .bk-header, .bk-body, .bk-footer { padding-left: 20px; padding-right: 20px; }

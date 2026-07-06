@@ -98,7 +98,7 @@ function blankToNull(value) {
   return value || null;
 }
 
-function buildBookingPayload({ slotId, form, serviceId, technicianLevel, nailArtId, removalId }) {
+function buildBookingPayload({ slotId, form, serviceId, nailArtId, removalId }) {
   const f = form || {};
   return {
     slotId,
@@ -107,10 +107,9 @@ function buildBookingPayload({ slotId, form, serviceId, technicianLevel, nailArt
     phone: blankToNull(f.phone),
     instagram: blankToNull(f.instagram),
     notes: blankToNull(f.notes),
-    // Send selection IDs only; the server recomputes the service name, technician,
+    // Send selection IDs only; the server recomputes the service name,
     // add-on names and total price from its catalog (client values are not trusted).
     serviceId: blankToNull(serviceId),
-    technicianLevel: blankToNull(technicianLevel),
     nailArtId: blankToNull(nailArtId),
     removalId: blankToNull(removalId),
   };
