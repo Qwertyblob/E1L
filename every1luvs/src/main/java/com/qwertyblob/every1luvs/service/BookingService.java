@@ -154,7 +154,6 @@ public class BookingService {
         booking.setInstagram(trimToNull(request.instagram()));
         booking.setNotes(trimToNull(request.notes()));
         booking.setServiceName(quote.serviceName());
-        booking.setTechnician(quote.technician());
         booking.setNailArt(quote.nailArt());
         booking.setRemoval(quote.removal());
         booking.setTotalPrice(quote.totalPrice());
@@ -194,7 +193,7 @@ public class BookingService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private record BookingQuote(String serviceName, String technician, String nailArt,
+    private record BookingQuote(String serviceName, String nailArt,
                                 String removal, int totalPrice) {
     }
 
@@ -203,9 +202,6 @@ public class BookingService {
         BookingCatalog.Service service = BookingCatalog.service(request.serviceId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Unknown or missing service selection."));
-        if (!BookingCatalog.isValidTechnicianLevel(request.technicianLevel())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown technician level.");
-        }
         BookingCatalog.AddOn nailArt = BookingCatalog.nailArt(request.nailArtId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Unknown nail art selection."));
@@ -213,10 +209,8 @@ public class BookingService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Unknown removal selection."));
 
-        int total = BookingCatalog.servicePrice(service, request.technicianLevel())
-                + nailArt.price() + removal.price();
-        return new BookingQuote(service.name(), BookingCatalog.technicianLabel(request.technicianLevel()),
-                nailArt.name(), removal.name(), total);
+        int total = service.price() + nailArt.price() + removal.price();
+        return new BookingQuote(service.name(), nailArt.name(), removal.name(), total);
     }
 
     @Transactional

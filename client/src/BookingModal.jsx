@@ -19,7 +19,7 @@ const TERMS = [
   'By booking with us you agree to these Terms & Conditions. Thank You! ♥'
 ];
 
-const STEP_LABELS = ['Service', 'Technician', 'Add-ons', 'Date & Time', 'T&C', 'Personal Details'];
+const STEP_LABELS = ['Service', 'Add-ons', 'Date & Time', 'T&C', 'Personal Details'];
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -39,10 +39,10 @@ function CheckIcon({ className }) {
   );
 }
 
-// Sum the chosen service (at the picked technician tier) plus optional nail-art
-// and removal add-ons. Missing selections contribute 0.
-function computeTotal(service, technician, nailArt, removal) {
-  const basePrice = service ? service[technician] : 0;
+// Sum the chosen service plus optional nail-art and removal add-ons.
+// Missing selections contribute 0.
+function computeTotal(service, nailArt, removal) {
+  const basePrice = service ? service.price : 0;
   const nailArtPrice = NAIL_ART.find((a) => a.id === nailArt)?.price || 0;
   const removalPrice = REMOVAL.find((r) => r.id === removal)?.price || 0;
   return basePrice + nailArtPrice + removalPrice;
@@ -58,11 +58,10 @@ function computeEstimatedDuration(service, nailArt, removal) {
 // Shared service/technician/date/time/total recap, used by the details step and
 // the success screen. `className` and `children` let each caller tweak styling
 // and append a deposit note without duplicating the rows.
-function BookingSummary({ service, techLabel, date, time, total, className = 'bk-summary', children }) {
+function BookingSummary({ service, date, time, total, className = 'bk-summary', children }) {
   return (
     <div className={className}>
       <div><span>Service</span><span>{service?.name}</span></div>
-      <div><span>Technician</span><span>{techLabel}</span></div>
       <div><span>Date</span><span>{formatLongDate(date)}</span></div>
       <div><span>Time</span><span>{time}</span></div>
       <div><span>Total</span><span>S${total}</span></div>
@@ -107,8 +106,7 @@ function ServiceStep({ services, serviceId, selectService }) {
               <span className="bk-service-duration">🕐 {s.duration}</span>
             </div>
             <div className="bk-service-price">
-              <span className="bk-from">from</span>
-              <span className="bk-price">S${s.junior}</span>
+              <span className="bk-price">S${s.price}</span>
               {serviceId === s.id && <CheckIcon className="bk-service-check" />}
             </div>
           </button>
@@ -118,38 +116,7 @@ function ServiceStep({ services, serviceId, selectService }) {
   );
 }
 
-// Step 1 — Technician
-function TechnicianStep({ technician, setTechnician, service }) {
-  return (
-    <>
-      <p className="bk-prompt">Choose your preferred technician level.</p>
-      <div className="bk-tech-grid">
-        {[
-          { id: 'junior', name: 'Junior', desc: 'Passionate, trained technicians building their portfolio. Skilled in all core services.' },
-          { id: 'senior', name: 'Senior', desc: 'Experienced technician with advanced nail art capability. Ideal for complex designs and extensions.' },
-        ].map((t) => (
-          <button
-            className={`bk-tech${technician === t.id ? ' bk-tech--selected' : ''}`}
-            key={t.id}
-            onClick={() => setTechnician(t.id)}
-            type="button"
-          >
-            <span className="bk-tech-name">{t.name}</span>
-            <p className="bk-tech-desc">{t.desc}</p>
-            <span className="bk-tech-price">S${service ? service[t.id] : ''}</span>
-            {technician === t.id && <CheckIcon className="bk-tech-check" />}
-          </button>
-        ))}
-      </div>
-      <div className="bk-help">
-        <p className="bk-help-title">Which should I choose?</p>
-        <p className="bk-help-text">Junior techs are great for classic manicures and everyday looks. Senior techs have more years of experience and are suited for complex nail art and extensions.</p>
-      </div>
-    </>
-  );
-}
-
-// Step 2 — Add-ons
+// Step 1 — Add-ons
 function AddOnsStep({ nailArt, setNailArt, removal, setRemoval, total }) {
   return (
     <>
@@ -188,7 +155,7 @@ function AddOnsStep({ nailArt, setNailArt, removal, setRemoval, total }) {
   );
 }
 
-// Step 3 — Date & Time
+// Step 2 — Date & Time
 function DateTimeStep({
   calMonth,
   calYear,
@@ -246,7 +213,7 @@ function DateTimeStep({
   );
 }
 
-// Step 4 — T&C
+// Step 3 — T&C
 function TermsStep({ agreed, setAgreed }) {
   return (
     <>
@@ -265,11 +232,11 @@ function TermsStep({ agreed, setAgreed }) {
   );
 }
 
-// Step 5 — Details & Confirm
-function DetailsStep({ service, techLabel, date, time, total, deposit, form, updateForm, bookingError }) {
+// Step 4 — Details & Confirm
+function DetailsStep({ service, date, time, total, deposit, form, updateForm, bookingError }) {
   return (
     <>
-      <BookingSummary service={service} techLabel={techLabel} date={date} time={time} total={total} />
+      <BookingSummary service={service} date={date} time={time} total={total} />
       <div className="bk-summary-deposit">
         <span>Deposit due</span><span>S${deposit}</span>
       </div>
@@ -299,7 +266,7 @@ function DetailsStep({ service, techLabel, date, time, total, deposit, form, upd
   );
 }
 
-function SuccessView({ formEmail, service, techLabel, date, time, total, deposit, onClose }) {
+function SuccessView({ formEmail, service, date, time, total, deposit, onClose }) {
   return (
     <div className="bk-success">
       <div className="bk-success-check"><CheckIcon /></div>
@@ -310,7 +277,6 @@ function SuccessView({ formEmail, service, techLabel, date, time, total, deposit
       <BookingSummary
         className="bk-summary bk-summary--success"
         service={service}
-        techLabel={techLabel}
         date={date}
         time={time}
         total={total}
@@ -328,7 +294,6 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   const [done, setDone] = useState(false);
 
   const [serviceId, setServiceId] = useState(null);
-  const [technician, setTechnician] = useState('junior');
   const [nailArt, setNailArt] = useState('none');
   const [removal, setRemoval] = useState('none');
   const [calYear, setCalYear] = useState(now.getFullYear());
@@ -395,15 +360,15 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     [serviceId],
   );
 
-  const total = computeTotal(service, technician, nailArt, removal);
+  const total = computeTotal(service, nailArt, removal);
   const estimatedDuration = computeEstimatedDuration(service, nailArt, removal);
   const deposit = 30;
 
   const canContinue = (() => {
     if (step === 0) return !!service;
-    if (step === 3) return !!date && !!time;
-    if (step === 4) return agreed;
-    if (step === 5) return form.fullName.trim() && form.email.trim();
+    if (step === 2) return !!date && !!time;
+    if (step === 3) return agreed;
+    if (step === 4) return form.fullName.trim() && form.email.trim();
     return true;
   })();
 
@@ -455,7 +420,6 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
         deposit,
         // Send selection IDs; the server recomputes the canonical names + price from these.
         serviceId: service?.id || null,
-        technicianLevel: technician,
         nailArtId: nailArt,
         removalId: removal,
         date,
@@ -469,8 +433,6 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     }
   }
 
-  const techLabel = technician === 'junior' ? 'Junior Technician' : 'Senior Technician';
-
   return (
     <div className="bk-backdrop">
       <div className="bk-modal" ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Book Appointment">
@@ -478,7 +440,6 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
           <SuccessView
             formEmail={form.email}
             service={service}
-            techLabel={techLabel}
             date={date}
             time={time}
             total={total}
@@ -501,7 +462,6 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
                   serviceId={serviceId}
                   selectService={selectService}
                 />,
-                <TechnicianStep technician={technician} setTechnician={setTechnician} service={service} />,
                 <AddOnsStep
                   nailArt={nailArt}
                   setNailArt={setNailArt}
@@ -525,7 +485,6 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
                 <TermsStep agreed={agreed} setAgreed={setAgreed} />,
                 <DetailsStep
                   service={service}
-                  techLabel={techLabel}
                   date={date}
                   time={time}
                   total={total}
@@ -539,7 +498,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
 
             <footer className="bk-footer">
               {step > 0 && <button className="bk-btn bk-btn--ghost" onClick={back} type="button" disabled={submitting}>Back</button>}
-              {step < 5 ? (
+              {step < 4 ? (
                 <button className={`bk-btn bk-btn--primary${step === 0 ? ' bk-btn--full' : ''}`} disabled={!canContinue} onClick={next} type="button">Continue</button>
               ) : (
                 <button className="bk-btn bk-btn--primary" disabled={!canContinue || submitting} onClick={confirmBooking} type="button">

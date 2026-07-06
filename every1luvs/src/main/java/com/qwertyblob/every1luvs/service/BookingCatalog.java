@@ -11,9 +11,9 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Server-side catalog of bookable services, technician tiers, and add-ons. It is the
- * authoritative source for prices and display names so the backend can recompute a
- * booking's total instead of trusting client-supplied values.
+ * Server-side catalog of bookable services and add-ons. It is the authoritative source
+ * for prices and display names so the backend can recompute a booking's total instead
+ * of trusting client-supplied values.
  *
  * <p>The data is loaded from {@code /catalog/services.json} on the classpath, which the
  * Maven build copies verbatim from {@code client/src/services.json} — the single canonical
@@ -24,9 +24,9 @@ public final class BookingCatalog {
     private static final String CATALOG_RESOURCE = "/catalog/services.json";
 
     /**
-     * A bookable service with its junior/senior technician prices (SGD, whole dollars).
+     * A bookable service with its price (SGD, whole dollars).
      */
-    public record Service(String id, String name, int junior, int senior, int durationMin) {
+    public record Service(String id, String name, int price, int durationMin) {
     }
 
     /** A priced add-on (nail-art tier or removal option). {@code durationMin} is the extra time it adds. */
@@ -39,7 +39,7 @@ public final class BookingCatalog {
     // popular, …) are intentionally ignored here — the backend needs id/name/price plus the
     // numeric durationMin (used to surface how long a service/add-on takes).
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record RawService(String id, String name, int junior, int senior, int durationMin) {
+    private record RawService(String id, String name, int price, int durationMin) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -72,18 +72,6 @@ public final class BookingCatalog {
         return Optional.ofNullable(id == null ? null : SERVICES.get(id));
     }
 
-    public static boolean isValidTechnicianLevel(String level) {
-        return "junior".equals(level) || "senior".equals(level);
-    }
-
-    public static String technicianLabel(String level) {
-        return "senior".equals(level) ? "Senior Technician" : "Junior Technician";
-    }
-
-    public static int servicePrice(Service service, String level) {
-        return "senior".equals(level) ? service.senior() : service.junior();
-    }
-
     public static Optional<AddOn> nailArt(String id) {
         return Optional.ofNullable(NAIL_ART.get(id == null ? DEFAULT_ADD_ON : id));
     }
@@ -108,7 +96,7 @@ public final class BookingCatalog {
         Map<String, Service> map = new LinkedHashMap<>();
         if (nailServices != null) {
             for (RawService raw : nailServices) {
-                map.put(raw.id(), new Service(raw.id(), raw.name(), raw.junior(), raw.senior(), raw.durationMin()));
+                map.put(raw.id(), new Service(raw.id(), raw.name(), raw.price(), raw.durationMin()));
             }
         }
         return Map.copyOf(map);

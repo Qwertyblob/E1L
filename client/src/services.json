@@ -7,8 +7,7 @@
       "desc": "A swift, efficient manicure with file and shape, cuticle tidy, and gel polish application. Perfect for a refresh.",
       "duration": "~30 min",
       "durationMin": 30,
-      "junior": 35,
-      "senior": 42
+      "price": 42
     },
     {
       "id": "classic",
@@ -17,8 +16,7 @@
       "desc": "Thorough nail prep, cuticle care, hand massage, and full gel polish application. Our most loved everyday service.",
       "duration": "~45 min",
       "durationMin": 45,
-      "junior": 48,
-      "senior": 58
+      "price": 58
     },
     {
       "id": "structured",
@@ -27,8 +25,7 @@
       "desc": "Perfect choice for people with weak nails and minimal growth. Includes gel polish, cuticle care, nail prep, and strengthening overlay.",
       "duration": "~60 min",
       "durationMin": 60,
-      "junior": 61,
-      "senior": 72,
+      "price": 72,
       "popular": true
     },
     {
@@ -38,8 +35,7 @@
       "desc": "Premium soft gel extension system applied over natural nails. Zero damage, instant length, and a flawless finish.",
       "duration": "~90 min",
       "durationMin": 90,
-      "junior": 85,
-      "senior": 108,
+      "price": 108,
       "popular": true
     }
   ],

@@ -12,14 +12,8 @@ describe('services catalog data integrity', () => {
       expect(service.name).toBeTruthy();
       expect(typeof service.durationMin).toBe('number');
       expect(service.durationMin).toBeGreaterThan(0);
-      expect(typeof service.junior).toBe('number');
-      expect(typeof service.senior).toBe('number');
-    }
-  });
-
-  test('senior price is never below junior price', () => {
-    for (const service of NAIL_SERVICES) {
-      expect(service.senior).toBeGreaterThanOrEqual(service.junior);
+      expect(typeof service.price).toBe('number');
+      expect(service.price).toBeGreaterThan(0);
     }
   });
 
