@@ -1,7 +1,7 @@
 import { render, fireEvent } from '@testing-library/react';
 import { useFocusTrap } from './useFocusTrap';
 
-function Dialog({ active, onClose, withFocusables = true }) {
+function Dialog({ active, onClose, withFocusables = true, withFile = false }) {
   const ref = useFocusTrap(active, onClose);
   return (
     <div ref={ref} tabIndex={-1} data-testid="dialog">
@@ -11,6 +11,7 @@ function Dialog({ active, onClose, withFocusables = true }) {
           <button data-testid="last">Last</button>
         </>
       )}
+      {withFile && <input data-testid="file" type="file" />}
     </div>
   );
 }
@@ -39,6 +40,17 @@ describe('useFocusTrap', () => {
     fireEvent.keyDown(getByTestId('dialog'), { key: 'Escape' });
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test('Escape originating from a file input does not call onClose', () => {
+    // A native file picker fires a trailing Escape that bubbles to the dialog when dismissed;
+    // it must not close the modal (regression: modal vanished after choosing a photo).
+    const onClose = jest.fn();
+    const { getByTestId } = render(<Dialog active onClose={onClose} withFile />);
+
+    fireEvent.keyDown(getByTestId('file'), { key: 'Escape' });
+
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   test('Tab from the last element wraps to the first', () => {

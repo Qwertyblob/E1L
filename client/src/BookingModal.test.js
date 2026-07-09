@@ -40,6 +40,23 @@ async function toAddonsStep(serviceName = /^Classic Manicure/) {
   await clickContinue();
 }
 
+// Advance: add-ons (step1) → date & time (step2) → personal details (step3).
+async function toDetailsStep() {
+  await toAddonsStep(); // Classic Manicure
+  await clickContinue(); // step 2 — date & time
+  await userEvent.click(await screen.findByRole('button', { name: '15' }));
+  await userEvent.click(screen.getByRole('button', { name: '10:00' }));
+  await clickContinue(); // step 3 — personal details
+}
+
+// Advance: details (step3) → fill name/email → T&C (step4, the final confirm step).
+async function toTermsStep(name = 'Alice', email = 'alice@example.com') {
+  await toDetailsStep();
+  await userEvent.type(screen.getByLabelText(/Full Name/), name);
+  await userEvent.type(screen.getByLabelText(/Email/), email);
+  await clickContinue(); // step 4 — T&C
+}
+
 beforeEach(() => {
   mockSlots();
 });
@@ -87,18 +104,24 @@ describe('BookingModal — step gating (canContinue)', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
   });
 
-  test('T&C step blocks continue until the box is checked', async () => {
+  test('details step blocks continue until name and email are filled', async () => {
     renderModal();
-    await toAddonsStep();
-    await clickContinue(); // → date & time (step 2)
-
-    await userEvent.click(await screen.findByRole('button', { name: '15' }));
-    await userEvent.click(screen.getByRole('button', { name: '10:00' }));
-    await clickContinue(); // → T&C (step 3)
+    await toDetailsStep(); // → personal details (step 3)
 
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
-    await userEvent.click(screen.getByRole('checkbox'));
+    await userEvent.type(screen.getByLabelText(/Full Name/), 'Alice');
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    await userEvent.type(screen.getByLabelText(/Email/), 'alice@example.com');
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+  });
+
+  test('T&C step blocks confirm until the box is checked', async () => {
+    renderModal();
+    await toTermsStep(); // → T&C (step 4, final)
+
+    expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('checkbox'));
+    expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeEnabled();
   });
 });
 
@@ -127,22 +150,10 @@ describe('BookingModal — availability mapping', () => {
 });
 
 describe('BookingModal — confirm flow', () => {
-  async function driveToConfirm() {
-    await toAddonsStep(); // Classic Manicure
-    await clickContinue(); // step 2 — date & time
-    await userEvent.click(await screen.findByRole('button', { name: '15' }));
-    await userEvent.click(screen.getByRole('button', { name: '10:00' }));
-    await clickContinue(); // step 3 — T&C
-    await userEvent.click(screen.getByRole('checkbox'));
-    await clickContinue(); // step 4 — details
-  }
-
   test('confirm resolves the matching slot id and submits the expected payload', async () => {
     const { onConfirm } = renderModal();
-    await driveToConfirm();
-
-    await userEvent.type(screen.getByLabelText(/Full Name/), 'Alice');
-    await userEvent.type(screen.getByLabelText(/Email/), 'alice@example.com');
+    await toTermsStep(); // details filled with Alice / alice@example.com
+    await userEvent.click(screen.getByRole('checkbox'));
     await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
 
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
@@ -161,24 +172,34 @@ describe('BookingModal — confirm flow', () => {
     expect(await screen.findByText("You're booked!")).toBeInTheDocument();
   });
 
-  test('confirm is gated until name and email are filled', async () => {
-    renderModal();
-    await driveToConfirm();
-
-    expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeDisabled();
+  test('attaches an inspo image on the details step and includes it in the payload', async () => {
+    const { onConfirm } = renderModal();
+    await toDetailsStep(); // personal details (step 3), where the uploader lives
     await userEvent.type(screen.getByLabelText(/Full Name/), 'Alice');
-    expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeDisabled();
     await userEvent.type(screen.getByLabelText(/Email/), 'alice@example.com');
-    expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeEnabled();
+
+    const file = new File(['hello'], 'inspo.png', { type: 'image/png' });
+    await userEvent.upload(document.querySelector('input[type="file"]'), file);
+
+    // Thumbnail (alt = filename) appears once the file has been read.
+    expect(await screen.findByAltText('inspo.png')).toBeInTheDocument();
+
+    await clickContinue(); // → T&C (step 4)
+    await userEvent.click(screen.getByRole('checkbox'));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+    const payload = onConfirm.mock.calls[0][0];
+    expect(payload.attachments).toHaveLength(1);
+    expect(payload.attachments[0]).toMatchObject({ filename: 'inspo.png', contentType: 'image/png' });
+    expect(payload.attachments[0].data).toBe('aGVsbG8='); // base64 of "hello", data-URL prefix stripped
   });
 
   test('surfaces the error message when onConfirm rejects', async () => {
     const onConfirm = jest.fn().mockRejectedValue(new Error('Slot already taken.'));
     render(<BookingModal onClose={jest.fn()} onConfirm={onConfirm} />);
-    await driveToConfirm();
-
-    await userEvent.type(screen.getByLabelText(/Full Name/), 'Alice');
-    await userEvent.type(screen.getByLabelText(/Email/), 'alice@example.com');
+    await toTermsStep();
+    await userEvent.click(screen.getByRole('checkbox'));
     await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
 
     expect(await screen.findByText('Slot already taken.')).toBeInTheDocument();
@@ -187,7 +208,7 @@ describe('BookingModal — confirm flow', () => {
 
   test('prefills name and email from currentUser', async () => {
     renderModal({ currentUser: { name: 'Bob', email: 'bob@example.com' } });
-    await driveToConfirm();
+    await toDetailsStep();
 
     expect(screen.getByLabelText(/Full Name/)).toHaveValue('Bob');
     expect(screen.getByLabelText(/Email/)).toHaveValue('bob@example.com');

@@ -7,19 +7,25 @@ import { useFocusTrap } from './useFocusTrap';
 // Relative base so requests go through the dev-server proxy (same-origin). See App.jsx.
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
+// Inspo-image limits. Kept in step with BookingService.validateAttachments and the nginx
+// client_max_body_size so the client rejects oversized sets before the server/edge does.
+const MAX_ATTACHMENTS = 5;
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const MAX_TOTAL_ATTACHMENT_BYTES = 15 * 1024 * 1024;
+
 const TERMS = [
-  'Bookings are made through DMs unless otherwise stated.',
-  'A deposit of S$30 is needed to secure your slot. No deposit within 24 hours = cancelled appointment.',
-  'Deposit is non-refundable when: rescheduling less than 72 hours from your slot; reschedule more than 1 time; no show or cancellation; arriving more than 15 minutes late (counts as a no-show).',
-  'Please check your manicure before leaving. Touch-ups are only offered for 7 days after your appointment date.',
-  'Complimentary nail art top-up is offered on a per-appointment basis only. Please inform before your appointment.',
-  'Kindly send inspo pictures once your booking is confirmed — this gives us time to ensure we have the necessary supplies for your set.',
-  'A late fee of S$10 applies to clients who are more than 15 minutes late. Arriving 20 minutes late may not leave sufficient time to complete the service.',
-  "For 'On My Mind, On Your Nails' sets — your nails will be featured on our Instagram story. By booking this set you consent to your nails being photographed and shared on our social media.",
-  'By booking with us you agree to these Terms & Conditions. Thank You! ♥'
+  'All bookings must be made through our website unless otherwise stated.',
+  'A S$30 deposit secures your slot. Unpaid deposits after 24 hours will result in automatic cancellation.',
+  'Cancellations or reschedules must be made at least 72 hours in advance, or the deposit will be forfeited.',
+  'Kindly share your inspo pictures or links when booking (or send them to us via DM) — this gives us time to ensure we have the necessary supplies for your set.',
+  'Please check your manicure before leaving. Touch-ups are offered up to 7 days after your appointment date.',
+  'Arriving more than 20 minutes late incurs a S$10 late fee and may mean your full set cannot be completed.',
+  'We’re not liable for allergic reactions or product sensitivity not disclosed beforehand. We may decline or modify a service if nails show signs of infection/damage.',
+  'As our studio space is limited, we kindly ask that clients attend their appointment alone where possible. Please let us know in advance if you’ll be bringing a guest.',
+  'Prices are subject to change without prior notice. Any price changes will not affect deposits already paid for confirmed bookings.'
 ];
 
-const STEP_LABELS = ['Service', 'Add-ons', 'Date & Time', 'T&C', 'Personal Details'];
+const STEP_LABELS = ['Service', 'Add-ons', 'Date & Time', 'Personal Details', 'T&C'];
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -55,16 +61,30 @@ function computeEstimatedDuration(service, nailArt, removal) {
   return baseDuration + nailArtDuration + removalDuration;
 }
 
-// Shared service/technician/date/time/total recap, used by the details step and
-// the success screen. `className` and `children` let each caller tweak styling
-// and append a deposit note without duplicating the rows.
-function BookingSummary({ service, date, time, total, className = 'bk-summary', children }) {
+// Human-readable list of the chosen add-ons for the recap rows. "none" selections (the default
+// nail-art/removal options) are omitted; shows "None" when nothing extra is added.
+function formatAddOns(nailArt, removal) {
+  const parts = [];
+  if (nailArt && nailArt !== 'none') {
+    parts.push(NAIL_ART.find((a) => a.id === nailArt)?.name || nailArt);
+  }
+  if (removal && removal !== 'none') {
+    parts.push(REMOVAL.find((r) => r.id === removal)?.name || removal);
+  }
+  return parts.length ? parts.join(', ') : 'None';
+}
+
+// Shared service/add-ons/date/time/total recap, used by the details step and the success screen.
+// `className` and `children` let each caller tweak styling and append a deposit note without
+// duplicating the rows. The total is an estimate, so it is labelled "Total estimate".
+function BookingSummary({ service, addOns, date, time, total, className = 'bk-summary', children }) {
   return (
     <div className={className}>
-      <div><span>Service</span><span>{service?.name}</span></div>
+      <div><span>Services</span><span>{service?.name}</span></div>
+      <div><span>Add-ons</span><span>{addOns}</span></div>
       <div><span>Date</span><span>{formatLongDate(date)}</span></div>
       <div><span>Time</span><span>{time}</span></div>
-      <div><span>Total</span><span>S${total}</span></div>
+      <div><span>Total estimate</span><span>S${total}</span></div>
       {children}
     </div>
   );
@@ -213,11 +233,11 @@ function DateTimeStep({
   );
 }
 
-// Step 3 — T&C
-function TermsStep({ agreed, setAgreed }) {
+// Step 4 — T&C (final step; confirms the booking)
+function TermsStep({ agreed, setAgreed, bookingError }) {
   return (
     <>
-      <p className="bk-prompt">Please read and accept our Terms &amp; Conditions before entering your details.</p>
+      <p className="bk-prompt">Please read and accept our Terms &amp; Conditions to complete your booking.</p>
       <div className="bk-terms">
         <p className="bk-terms-title">Terms &amp; Conditions</p>
         <ol className="bk-terms-list">
@@ -226,17 +246,66 @@ function TermsStep({ agreed, setAgreed }) {
       </div>
       <label className="bk-agree">
         <input checked={agreed} onChange={(e) => setAgreed(e.target.checked)} type="checkbox" />
-        <span>I have read and agree to the Terms &amp; Conditions. I understand a S$30 deposit is required and is non-refundable under the stated conditions.</span>
+        <span>I have read and agree to the Terms &amp; Conditions.</span>
       </label>
+      {bookingError && <p className="bk-booking-error">{bookingError}</p>}
     </>
   );
 }
 
-// Step 4 — Details & Confirm
-function DetailsStep({ service, date, time, total, deposit, form, updateForm, bookingError }) {
+// Read a File into a transient attachment: base64 `data` for the request plus a `previewUrl`
+// data-URL for the thumbnail. Resolves null if the reader fails so one bad file is skipped.
+function readImageFile(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      const comma = dataUrl.indexOf(',');
+      const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+      resolve({
+        id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
+        filename: file.name || 'inspo.jpg',
+        contentType: file.type || 'image/jpeg',
+        data: base64,
+        previewUrl: dataUrl,
+        size: file.size,
+      });
+    };
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
+}
+
+// Step 3 — Personal Details
+function DetailsStep({
+  service, addOns, date, time, total, deposit, form, updateForm,
+  attachments, addFiles, removeAttachment, attachmentError,
+}) {
+  function onFileInput(e) {
+    addFiles(e.target.files);
+    e.target.value = ''; // allow re-selecting the same file after a remove
+  }
+
+  // Pasting a copied image (⌘/Ctrl+V) anywhere in this step attaches it too.
+  function onPaste(e) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files = [];
+    for (const item of items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (files.length) {
+      e.preventDefault();
+      addFiles(files);
+    }
+  }
+
   return (
-    <>
-      <BookingSummary service={service} date={date} time={time} total={total} />
+    <div onPaste={onPaste}>
+      <BookingSummary service={service} addOns={addOns} date={date} time={time} total={total} />
       <div className="bk-summary-deposit">
         <span>Deposit due</span><span>S${deposit}</span>
       </div>
@@ -250,7 +319,7 @@ function DetailsStep({ service, date, time, total, deposit, form, updateForm, bo
       </label>
       <label className="bk-field">
         <span>Phone</span>
-        <input name="phone" onChange={updateForm} placeholder="+65 9123 4567" type="tel" value={form.phone} />
+        <input name="phone" onChange={updateForm} placeholder="9123 4567" type="tel" value={form.phone} />
       </label>
       <label className="bk-field">
         <span>Instagram Username</span>
@@ -260,13 +329,38 @@ function DetailsStep({ service, date, time, total, deposit, form, updateForm, bo
         <span>Notes (optional)</span>
         <textarea name="notes" onChange={updateForm} placeholder="Nail shape, inspo refs, allergies…" rows="3" value={form.notes} />
       </label>
+      <div className="bk-field">
+        <span>Inspo photos (optional)</span>
+        <p className="bk-attach-hint">Add from your photos or files, or paste a copied image. Up to {MAX_ATTACHMENTS} images, 5&nbsp;MB each.</p>
+        <label className="bk-attach-add">
+          <input accept="image/*" multiple onChange={onFileInput} type="file" />
+          <span>+ Add photos</span>
+        </label>
+        {attachments.length > 0 && (
+          <ul className="bk-attach-grid">
+            {attachments.map((a) => (
+              <li className="bk-attach-item" key={a.id}>
+                <img alt={a.filename} className="bk-attach-thumb" src={a.previewUrl} />
+                <button
+                  aria-label={`Remove ${a.filename}`}
+                  className="bk-attach-remove"
+                  onClick={() => removeAttachment(a.id)}
+                  type="button"
+                >
+                  &times;
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {attachmentError && <p className="bk-attach-error">{attachmentError}</p>}
+      </div>
       <p className="bk-deposit-note">A deposit of S${deposit} is required to confirm your slot. Payment details will be shared after booking.</p>
-      {bookingError && <p className="bk-booking-error">{bookingError}</p>}
-    </>
+    </div>
   );
 }
 
-function SuccessView({ formEmail, service, date, time, total, deposit, onClose }) {
+function SuccessView({ formEmail, service, addOns, date, time, total, deposit, onClose }) {
   return (
     <div className="bk-success">
       <div className="bk-success-check"><CheckIcon /></div>
@@ -277,6 +371,7 @@ function SuccessView({ formEmail, service, date, time, total, deposit, onClose }
       <BookingSummary
         className="bk-summary bk-summary--success"
         service={service}
+        addOns={addOns}
         date={date}
         time={time}
         total={total}
@@ -311,6 +406,42 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   const [availableSlots, setAvailableSlots] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [bookingError, setBookingError] = useState('');
+  const [attachments, setAttachments] = useState([]);
+  const [attachmentError, setAttachmentError] = useState('');
+
+  // Accept image files from the picker or a paste, validating count/size against the same caps
+  // the server enforces. Non-images and oversized files are skipped with an inline message.
+  async function addFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+    setAttachmentError('');
+
+    let error = '';
+    const images = files.filter((f) => f.type.startsWith('image/'));
+    if (images.length !== files.length) error = 'Only image files can be attached.';
+
+    let count = attachments.length;
+    let totalBytes = attachments.reduce((sum, a) => sum + (a.size || 0), 0);
+    const additions = [];
+    for (const file of images) {
+      if (count >= MAX_ATTACHMENTS) { error = `You can attach up to ${MAX_ATTACHMENTS} images.`; break; }
+      if (file.size > MAX_ATTACHMENT_BYTES) { error = 'Each image must be 5 MB or smaller.'; continue; }
+      if (totalBytes + file.size > MAX_TOTAL_ATTACHMENT_BYTES) { error = 'Those images are too large in total.'; break; }
+      const attachment = await readImageFile(file);
+      if (!attachment) { error = 'One image could not be read. Please try another.'; continue; }
+      additions.push(attachment);
+      count += 1;
+      totalBytes += file.size;
+    }
+
+    if (additions.length) setAttachments((prev) => [...prev, ...additions]);
+    if (error) setAttachmentError(error);
+  }
+
+  function removeAttachment(id) {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+    setAttachmentError('');
+  }
 
   const dialogRef = useFocusTrap(true, onClose);
 
@@ -361,14 +492,15 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   );
 
   const total = computeTotal(service, nailArt, removal);
+  const addOnsLabel = formatAddOns(nailArt, removal);
   const estimatedDuration = computeEstimatedDuration(service, nailArt, removal);
   const deposit = 30;
 
   const canContinue = (() => {
     if (step === 0) return !!service;
     if (step === 2) return !!date && !!time;
-    if (step === 3) return agreed;
-    if (step === 4) return form.fullName.trim() && form.email.trim();
+    if (step === 3) return form.fullName.trim() && form.email.trim();
+    if (step === 4) return agreed;
     return true;
   })();
 
@@ -424,6 +556,8 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
         removalId: removal,
         date,
         time,
+        // Strip the preview data-URL + size; the API only needs filename/contentType/base64 data.
+        attachments: attachments.map((a) => ({ filename: a.filename, contentType: a.contentType, data: a.data })),
       });
       setDone(true);
     } catch (err) {
@@ -440,6 +574,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
           <SuccessView
             formEmail={form.email}
             service={service}
+            addOns={addOnsLabel}
             date={date}
             time={time}
             total={total}
@@ -482,17 +617,21 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
                   availableTimes={availableTimes}
                   estimatedDuration={estimatedDuration}
                 />,
-                <TermsStep agreed={agreed} setAgreed={setAgreed} />,
                 <DetailsStep
                   service={service}
+                  addOns={addOnsLabel}
                   date={date}
                   time={time}
                   total={total}
                   deposit={deposit}
                   form={form}
                   updateForm={updateForm}
-                  bookingError={bookingError}
+                  attachments={attachments}
+                  addFiles={addFiles}
+                  removeAttachment={removeAttachment}
+                  attachmentError={attachmentError}
                 />,
+                <TermsStep agreed={agreed} setAgreed={setAgreed} bookingError={bookingError} />,
               ][step]}
             </div>
 

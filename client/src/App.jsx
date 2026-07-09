@@ -98,7 +98,7 @@ function blankToNull(value) {
   return value || null;
 }
 
-function buildBookingPayload({ slotId, form, serviceId, nailArtId, removalId }) {
+function buildBookingPayload({ slotId, form, serviceId, nailArtId, removalId, attachments }) {
   const f = form || {};
   return {
     slotId,
@@ -112,6 +112,9 @@ function buildBookingPayload({ slotId, form, serviceId, nailArtId, removalId }) 
     serviceId: blankToNull(serviceId),
     nailArtId: blankToNull(nailArtId),
     removalId: blankToNull(removalId),
+    // Optional inspo images ({ filename, contentType, data }). The server forwards these to the
+    // salon inbox as email attachments and never stores them. Omit the key when there are none.
+    attachments: attachments && attachments.length ? attachments : null,
   };
 }
 

@@ -50,6 +50,8 @@ public class BookingController {
         BookingResponse created = bookingService.createBooking(request, null, clientIp(httpRequest));
         // Post-commit (createBooking has returned) + @Async, so a mail failure can't fail the booking.
         bookingMailService.sendBookingConfirmation(created);
+        // Send the admin a full copy of every booking (all details + any inspo photos), best-effort.
+        bookingMailService.sendAdminBookingNotification(created, request.attachments());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -64,6 +66,8 @@ public class BookingController {
         BookingResponse created = bookingService.createBooking(request, authentication.getName(), clientIp(httpRequest));
         // Post-commit (createBooking has returned) + @Async, so a mail failure can't fail the booking.
         bookingMailService.sendBookingConfirmation(created);
+        // Send the admin a full copy of every booking (all details + any inspo photos), best-effort.
+        bookingMailService.sendAdminBookingNotification(created, request.attachments());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 

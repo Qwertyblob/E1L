@@ -47,6 +47,9 @@ export function useFocusTrap(active, onClose) {
 
     function onKeyDown(event) {
       if (event.key === 'Escape') {
+        // A native file picker emits a trailing Escape keydown that bubbles to the dialog when it
+        // is dismissed; ignore it so choosing/cancelling a photo doesn't close the whole modal.
+        if (event.target && event.target.type === 'file') return;
         event.stopPropagation();
         onCloseRef.current?.();
         return;

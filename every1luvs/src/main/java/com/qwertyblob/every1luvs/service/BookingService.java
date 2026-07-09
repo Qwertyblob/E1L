@@ -1,5 +1,6 @@
 package com.qwertyblob.every1luvs.service;
 
+import com.qwertyblob.every1luvs.dto.BookingAttachment;
 import com.qwertyblob.every1luvs.dto.BookingResponse;
 import com.qwertyblob.every1luvs.dto.CreateBookingRequest;
 import com.qwertyblob.every1luvs.entity.BookingEntity;
@@ -19,6 +20,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
@@ -42,6 +44,12 @@ public class BookingService {
     private static final int MAX_PHONE_LENGTH = 64;
     private static final int MAX_INSTAGRAM_LENGTH = 255;
     private static final int MAX_NOTES_LENGTH = 2_000;
+    // Inspo image caps. Images are emailed to the salon, never stored, so bound the count and
+    // (decoded) size to keep the public request body small and reject non-images. Keep these in
+    // step with the client-side checks in BookingModal.jsx and nginx client_max_body_size.
+    private static final int MAX_ATTACHMENTS = 5;
+    private static final long MAX_ATTACHMENT_BYTES = 5L * 1024 * 1024;
+    private static final long MAX_TOTAL_ATTACHMENT_BYTES = 15L * 1024 * 1024;
     // Pragmatic format gate: non-empty local part, single @, a dotted domain, no spaces.
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
 
@@ -97,6 +105,7 @@ public class BookingService {
         validateOptionalLength(request.phone(), MAX_PHONE_LENGTH, "Phone number");
         validateOptionalLength(request.instagram(), MAX_INSTAGRAM_LENGTH, "Instagram handle");
         validateOptionalLength(request.notes(), MAX_NOTES_LENGTH, "Notes");
+        validateAttachments(request.attachments());
 
         // Recompute service/add-on names and price from the server catalog so a caller can't
         // submit fake pricing; the client-sent serviceName/technician/nailArt/removal/totalPrice
@@ -183,6 +192,47 @@ public class BookingService {
         if (value != null && value.trim().length() > maxLength) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, fieldName + " is too long.");
         }
+    }
+
+    // Inspo images ride along with the booking only to be emailed to the salon; they are never
+    // persisted. Reject too many, too large, or non-image payloads with 400 (before the booking
+    // is created) so a public caller can't post an oversized or hostile body.
+    private void validateAttachments(List<BookingAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return;
+        }
+        if (attachments.size() > MAX_ATTACHMENTS) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "You can attach at most " + MAX_ATTACHMENTS + " images.");
+        }
+        long total = 0;
+        for (BookingAttachment attachment : attachments) {
+            if (attachment == null || isBlank(attachment.data())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "An attached image was empty.");
+            }
+            String contentType = attachment.contentType();
+            if (contentType == null || !contentType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only image attachments are allowed.");
+            }
+            long bytes = decodedBase64Length(attachment.data());
+            if (bytes > MAX_ATTACHMENT_BYTES) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Each image must be 5 MB or smaller.");
+            }
+            total += bytes;
+        }
+        if (total > MAX_TOTAL_ATTACHMENT_BYTES) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Your images are too large in total. Please remove some and try again.");
+        }
+    }
+
+    // Estimate the decoded byte length of a Base64 string without allocating the decoded array.
+    private long decodedBase64Length(String base64) {
+        int len = base64.length();
+        int padding = 0;
+        if (len > 0 && base64.charAt(len - 1) == '=') padding++;
+        if (len > 1 && base64.charAt(len - 2) == '=') padding++;
+        return (long) len * 3 / 4 - padding;
     }
 
     private String trimToNull(String value) {
