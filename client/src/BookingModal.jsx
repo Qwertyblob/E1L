@@ -286,25 +286,8 @@ function DetailsStep({
     e.target.value = ''; // allow re-selecting the same file after a remove
   }
 
-  // Pasting a copied image (⌘/Ctrl+V) anywhere in this step attaches it too.
-  function onPaste(e) {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    const files = [];
-    for (const item of items) {
-      if (item.kind === 'file' && item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) files.push(file);
-      }
-    }
-    if (files.length) {
-      e.preventDefault();
-      addFiles(files);
-    }
-  }
-
   return (
-    <div onPaste={onPaste}>
+    <>
       <BookingSummary service={service} addOns={addOns} date={date} time={time} total={total} />
       <div className="bk-summary-deposit">
         <span>Deposit due</span><span>S${deposit}</span>
@@ -331,7 +314,7 @@ function DetailsStep({
       </label>
       <div className="bk-field">
         <span>Inspo photos (optional)</span>
-        <p className="bk-attach-hint">Add from your photos or files, or paste a copied image. Up to {MAX_ATTACHMENTS} images, 5&nbsp;MB each.</p>
+        <p className="bk-attach-hint">Add from your photos or files. Up to {MAX_ATTACHMENTS} images, 5&nbsp;MB each.</p>
         <label className="bk-attach-add">
           <input accept="image/*" multiple onChange={onFileInput} type="file" />
           <span>+ Add photos</span>
@@ -356,7 +339,7 @@ function DetailsStep({
         {attachmentError && <p className="bk-attach-error">{attachmentError}</p>}
       </div>
       <p className="bk-deposit-note">A deposit of S${deposit} is required to confirm your slot. Payment details will be shared after booking.</p>
-    </div>
+    </>
   );
 }
 
