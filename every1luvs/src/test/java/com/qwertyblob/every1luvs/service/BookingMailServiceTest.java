@@ -1,25 +1,31 @@
 package com.qwertyblob.every1luvs.service;
 
+import com.qwertyblob.every1luvs.dto.BookingAttachment;
 import com.qwertyblob.every1luvs.dto.BookingResponse;
+import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.JavaMailSenderImpl;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class BookingMailServiceTest {
 
     private static final String FROM = "no-reply@every1luvs.test";
+    private static final String ADMIN = "admin@every1luvs.test";
 
     private final JavaMailSender mailSender = mock(JavaMailSender.class);
-    private final BookingMailService service = new BookingMailService(mailSender, FROM);
+    private final BookingMailService service = new BookingMailService(mailSender, FROM, ADMIN);
 
     private static BookingResponse booking(String email, String nailArt, String removal) {
         return new BookingResponse(
@@ -47,11 +53,11 @@ class BookingMailServiceTest {
                 .contains("Alice")
                 .contains("#7")
                 .contains("Classic Manicure")
-                .contains("Senior Technician")
                 .contains("S$60")
                 .contains("15 Jun 2026")
                 .contains("Tier 1 — Simple");          // meaningful nail-art line present
-        assertThat(body).doesNotContain("No removal needed"); // default removal line omitted
+        assertThat(body).doesNotContain("No removal needed");  // default removal line omitted
+        assertThat(body).doesNotContain("Senior Technician");  // technician tier removed
     }
 
     @Test
@@ -77,5 +83,31 @@ class BookingMailServiceTest {
     void sendBookingConfirmation_nullEmail_doesNotSend() {
         service.sendBookingConfirmation(booking(null, "Tier 1 — Simple", "No removal needed"));
         verify(mailSender, never()).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    void sendAdminBookingNotification_sendsToAdminWithPhotoAttached() throws Exception {
+        when(mailSender.createMimeMessage()).thenReturn(new JavaMailSenderImpl().createMimeMessage());
+        BookingAttachment image = new BookingAttachment("inspo.png", "image/png", "aGVsbG8=");
+
+        service.sendAdminBookingNotification(
+                booking("alice@example.com", "Tier 1 — Simple", "No removal needed"), List.of(image));
+
+        ArgumentCaptor<MimeMessage> captor = ArgumentCaptor.forClass(MimeMessage.class);
+        verify(mailSender).send(captor.capture());
+        MimeMessage sent = captor.getValue();
+
+        assertThat(sent.getAllRecipients()[0].toString()).isEqualTo(ADMIN);
+        assertThat(sent.getSubject()).contains("#7").contains("Alice");
+    }
+
+    @Test
+    void sendAdminBookingNotification_sendsEvenWithNoPhotos() throws Exception {
+        when(mailSender.createMimeMessage()).thenReturn(new JavaMailSenderImpl().createMimeMessage());
+
+        service.sendAdminBookingNotification(
+                booking("alice@example.com", "Tier 1 — Simple", "No removal needed"), List.of());
+
+        verify(mailSender).send(any(MimeMessage.class));
     }
 }

@@ -1,5 +1,6 @@
 package com.qwertyblob.every1luvs.service;
 
+import com.qwertyblob.every1luvs.dto.BookingAttachment;
 import com.qwertyblob.every1luvs.dto.BookingResponse;
 import com.qwertyblob.every1luvs.dto.CreateBookingRequest;
 import com.qwertyblob.every1luvs.entity.BookingEntity;
@@ -238,6 +239,33 @@ class BookingServiceTest {
                         new CreateBookingRequest(1L, "  ", "gina@example.com", null, null, null,
                                 null, null, null, null, null,
                                 "classic", "junior", "none", "none"), null),
+                ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void createBooking_tooManyAttachments_throws400() {
+        BookingAttachment image = new BookingAttachment("inspo.png", "image/png", "aGVsbG8=");
+        List<BookingAttachment> six = List.of(image, image, image, image, image, image);
+        var ex = catchThrowableOfType(
+                () -> bookingService.createBooking(
+                        new CreateBookingRequest(1L, "Guest Gina", "gina@example.com", null, null, null,
+                                null, null, null, null, null,
+                                "classic", "junior", "none", "none", six),
+                        null),
+                ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void createBooking_nonImageAttachment_throws400() {
+        BookingAttachment pdf = new BookingAttachment("resume.pdf", "application/pdf", "aGVsbG8=");
+        var ex = catchThrowableOfType(
+                () -> bookingService.createBooking(
+                        new CreateBookingRequest(1L, "Guest Gina", "gina@example.com", null, null, null,
+                                null, null, null, null, null,
+                                "classic", "junior", "none", "none", List.of(pdf)),
+                        null),
                 ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
