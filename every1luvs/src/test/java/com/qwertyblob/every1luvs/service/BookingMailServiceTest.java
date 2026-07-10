@@ -88,6 +88,34 @@ class BookingMailServiceTest {
     }
 
     @Test
+    void sendBookingReminder_sendsHtmlWithStudioDetailsAndClickableInstagram() throws Exception {
+        when(mailSender.createMimeMessage()).thenReturn(new JavaMailSenderImpl().createMimeMessage());
+
+        service.sendBookingReminder(booking("alice@example.com", "Tier 1 — Simple", "No removal needed"));
+
+        ArgumentCaptor<MimeMessage> captor = ArgumentCaptor.forClass(MimeMessage.class);
+        verify(mailSender).send(captor.capture());
+        MimeMessage sent = captor.getValue();
+
+        assertThat(sent.getAllRecipients()[0].toString()).isEqualTo("alice@example.com");
+        String html = sent.getContent().toString();
+        assertThat(html)
+                .contains("Hi Alice")
+                .contains("15 Jun 2026")                        // appointment date
+                .contains("2:00 PM")                            // start time
+                .contains("Block 190 Lorong 6 Toa Payoh")       // studio address
+                .contains("Toa Payoh HDB Hub Car Park")         // parking / MRT
+                .contains("<a href=\"https://instagram.com/every1luvsnails\">@every1luvsnails</a>");
+        assertThat(html).doesNotContain("3:00 PM");             // no end time
+    }
+
+    @Test
+    void sendBookingReminder_blankEmail_doesNotSend() {
+        service.sendBookingReminder(booking("  ", "Tier 1 — Simple", "No removal needed"));
+        verify(mailSender, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
     void sendAdminBookingNotification_sendsToAdminWithPhotoAttached() throws Exception {
         when(mailSender.createMimeMessage()).thenReturn(new JavaMailSenderImpl().createMimeMessage());
         BookingAttachment image = new BookingAttachment("inspo.png", "image/png", "aGVsbG8=");

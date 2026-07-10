@@ -61,4 +61,13 @@ public interface BookingRepository extends JpaRepository<BookingEntity, Long> {
     @Query("UPDATE BookingEntity b SET b.archivedAt = :now WHERE b.archivedAt IS NULL "
             + "AND b.slotId IN (SELECT s.id FROM SlotEntity s WHERE s.endTime < :cutoff)")
     int archiveBookingsForSlotsEndedBefore(@Param("cutoff") Instant cutoff, @Param("now") Instant now);
+
+    // Active BOOKED bookings, not yet reminded, whose appointment (slot start_time) falls in
+    // the reminder window (now, windowEnd] — i.e. still upcoming and within ~2 days. Joined to
+    // the slot since BookingEntity holds slot_id as a plain value, not a mapped relation.
+    @Query("SELECT b FROM BookingEntity b, SlotEntity s WHERE b.slotId = s.id "
+            + "AND b.status = 'BOOKED' AND b.archivedAt IS NULL AND b.reminderSentAt IS NULL "
+            + "AND s.startTime > :now AND s.startTime <= :windowEnd "
+            + "ORDER BY s.startTime ASC")
+    List<BookingEntity> findDueForReminder(@Param("now") Instant now, @Param("windowEnd") Instant windowEnd);
 }

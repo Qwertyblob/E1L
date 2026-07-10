@@ -65,6 +65,11 @@ public class BookingEntity {
     @Column(name = "archived_at")
     private Instant archivedAt;
 
+    // When the ~2-days-before reminder email was sent (null = not yet reminded). Stamped by
+    // ReminderService so a booking is reminded at most once, even across re-runs.
+    @Column(name = "reminder_sent_at")
+    private Instant reminderSentAt;
+
     @CreationTimestamp
     @Column(updatable = false)
     private Instant createdAt;
@@ -123,6 +128,9 @@ public class BookingEntity {
 
     public Instant getArchivedAt() { return archivedAt; }
     public void setArchivedAt(Instant archivedAt) { this.archivedAt = archivedAt; }
+
+    public Instant getReminderSentAt() { return reminderSentAt; }
+    public void setReminderSentAt(Instant reminderSentAt) { this.reminderSentAt = reminderSentAt; }
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }

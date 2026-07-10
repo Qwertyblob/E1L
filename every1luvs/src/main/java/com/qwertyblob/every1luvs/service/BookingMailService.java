@@ -49,6 +49,14 @@ public class BookingMailService {
     private static final String NO_NAIL_ART = "No design (plain colour only)";
     private static final String NO_REMOVAL = "No removal needed";
 
+    // Studio arrival details, shown only in the pre-appointment reminder (kept out of the
+    // confirmation, whose copy promises the address in a separate email nearer the day).
+    private static final String STUDIO_ADDRESS = "Block 190 Lorong 6 Toa Payoh";
+    private static final String STUDIO_TRANSPORT =
+            "Toa Payoh HDB Hub Car Park / Toa Payoh MRT Station";
+    private static final String INSTAGRAM_HANDLE = "@every1luvsnails";
+    private static final String INSTAGRAM_URL = "https://instagram.com/every1luvsnails";
+
     private final JavaMailSender mailSender;
     private final String fromAddress;
     // Inbox that receives the full booking notification (all details + inspo photos) on every
@@ -81,6 +89,36 @@ public class BookingMailService {
         mailSender.send(message);
         logger.info("Booking confirmation email sent to {} (booking #{})",
                 booking.customerEmail(), booking.id());
+    }
+
+    /**
+     * Sends the pre-appointment reminder (~2 days before) with the studio address and arrival
+     * instructions. Best-effort and {@code @Async} like the confirmation. Sent as HTML so the
+     * Instagram handle is a clickable link; a mail failure is swallowed/logged and never affects
+     * the booking or its reminder-sweep bookkeeping.
+     */
+    @Async
+    public void sendBookingReminder(BookingResponse booking) {
+        if (booking == null || booking.customerEmail() == null || booking.customerEmail().isBlank()) {
+            return; // nothing to send to
+        }
+
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
+            helper.setFrom(fromAddress);
+            helper.setTo(booking.customerEmail());
+            helper.setSubject("See you soon — your Every1Luvs appointment reminder");
+            helper.setText(buildReminderHtml(booking), true);
+
+            mailSender.send(message);
+            logger.info("Booking reminder email sent to {} (booking #{})",
+                    booking.customerEmail(), booking.id());
+        } catch (MessagingException e) {
+            // Swallow: the booking is unaffected, and the reminder is best-effort like all mail.
+            logger.warn("Failed to send booking reminder for booking #{}: {}",
+                    booking.id(), e.getMessage());
+        }
     }
 
     /**
@@ -208,5 +246,34 @@ public class BookingMailService {
 
     private boolean isMeaningful(String value, String defaultName) {
         return value != null && !value.isBlank() && !value.equals(defaultName);
+    }
+
+    // HTML body for the pre-appointment reminder. Customer-supplied text (name) is escaped; the
+    // rest is static studio copy. Time shows the start only, matching the confirmation.
+    private String buildReminderHtml(BookingResponse booking) {
+        String name = htmlEscape(safe(booking.userName()));
+        String date = SLOT_DATE_FORMAT.format(booking.slotStartTime());
+        String time = SLOT_TIME_FORMAT.format(booking.slotStartTime());
+        return "<p>Hi " + name + ",</p>"
+                + "<p>We can't wait to see you soon!</p>"
+                + "<p>Here are your appointment details:</p>"
+                + "<p>"
+                + "Date: " + date + "<br>"
+                + "Time: " + time + "<br>"
+                + "Location: " + STUDIO_ADDRESS + "<br>"
+                + "Nearest Parking / MRT: " + STUDIO_TRANSPORT
+                + "</p>"
+                + "<p>Please let us know when you arrive outside our studio, we will let you in!</p>"
+                + "<p>Have any questions? DM us at "
+                + "<a href=\"" + INSTAGRAM_URL + "\">" + INSTAGRAM_HANDLE + "</a></p>"
+                + "<p>See you soon!</p>"
+                + "<p>With Luv,<br>Every1Luvs</p>";
+    }
+
+    private String htmlEscape(String value) {
+        return value.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
     }
 }
