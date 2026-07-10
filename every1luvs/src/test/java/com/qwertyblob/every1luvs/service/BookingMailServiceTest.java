@@ -46,16 +46,18 @@ class BookingMailServiceTest {
 
         assertThat(sent.getFrom()).isEqualTo(FROM);
         assertThat(sent.getTo()).containsExactly("alice@example.com");
-        assertThat(sent.getSubject()).contains("confirmed");
+        assertThat(sent.getSubject()).isEqualTo("Every1Luvs appointment confirmation");
 
         String body = sent.getText();
         assertThat(body)
                 .contains("Alice")
-                .contains("#7")
                 .contains("Classic Manicure")
-                .contains("S$60")
+                .contains("Deposit Paid: S$30 (applied to your final bill)")
+                .contains("Total Estimate: S$60")
                 .contains("15 Jun 2026")
+                .contains("Time: 2:00 PM")               // start time only, no end time
                 .contains("Tier 1 — Simple");          // meaningful nail-art line present
+        assertThat(body).doesNotContain("3:00 PM");            // end time omitted
         assertThat(body).doesNotContain("No removal needed");  // default removal line omitted
         assertThat(body).doesNotContain("Senior Technician");  // technician tier removed
     }

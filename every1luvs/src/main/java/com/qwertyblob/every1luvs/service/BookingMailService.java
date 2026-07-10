@@ -33,6 +33,16 @@ public class BookingMailService {
     // exact time the admin entered. Locale is pinned so day/month names are deterministic.
     private static final DateTimeFormatter SLOT_FORMAT =
             DateTimeFormatter.ofPattern("EEE, d MMM yyyy, h:mm a", Locale.ENGLISH).withZone(ZoneOffset.UTC);
+    // Customer confirmation lists date and start time on separate lines (no end time), so split the
+    // slot's UTC wall-clock into its own date and time formatters.
+    private static final DateTimeFormatter SLOT_DATE_FORMAT =
+            DateTimeFormatter.ofPattern("EEE, d MMM yyyy", Locale.ENGLISH).withZone(ZoneOffset.UTC);
+    private static final DateTimeFormatter SLOT_TIME_FORMAT =
+            DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH).withZone(ZoneOffset.UTC);
+
+    // Flat deposit that secures a slot, mirrored from the client (BookingModal). Applied to the
+    // final bill; the recomputed booking total is the estimate.
+    private static final int DEPOSIT_SGD = 30;
 
     // "none" add-on display names (from services.json) — skip these lines so a plain
     // booking doesn't show empty add-ons.
@@ -65,7 +75,7 @@ public class BookingMailService {
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(fromAddress);
         message.setTo(booking.customerEmail());
-        message.setSubject("Your every1luvs booking is confirmed");
+        message.setSubject("Every1Luvs appointment confirmation");
         message.setText(buildBody(booking));
 
         mailSender.send(message);
@@ -175,23 +185,24 @@ public class BookingMailService {
     private String buildBody(BookingResponse booking) {
         StringBuilder body = new StringBuilder();
         body.append("Hi ").append(booking.userName()).append(",\n\n");
-        body.append("Your every1luvs booking is confirmed. Here are the details:\n\n");
-        body.append("Booking reference: #").append(booking.id()).append('\n');
+        body.append("Thank you for booking with Every1Luvs\n");
+        body.append("We can't wait to give your hands the love they deserve!\n\n");
+        body.append("Here's a summary of your appointment:\n");
+        body.append("Date: ").append(SLOT_DATE_FORMAT.format(booking.slotStartTime())).append('\n');
+        body.append("Time: ").append(SLOT_TIME_FORMAT.format(booking.slotStartTime())).append('\n');
         body.append("Service: ").append(booking.serviceName()).append('\n');
         if (isMeaningful(booking.nailArt(), NO_NAIL_ART)) {
-            body.append("Nail art: ").append(booking.nailArt()).append('\n');
+            body.append("Nail Art: ").append(booking.nailArt()).append('\n');
         }
         if (isMeaningful(booking.removal(), NO_REMOVAL)) {
             body.append("Removal: ").append(booking.removal()).append('\n');
         }
-        body.append("When: ")
-                .append(SLOT_FORMAT.format(booking.slotStartTime()))
-                .append(" – ")
-                .append(SLOT_FORMAT.format(booking.slotEndTime()))
-                .append('\n');
-        body.append("Total: S$").append(booking.totalPrice()).append("\n\n");
-        body.append("Need to make a change or cancel? Just reply to this email or get in touch and we'll help.\n\n");
-        body.append("See you soon!\nevery1luvs\n");
+        body.append("Deposit Paid: S$").append(DEPOSIT_SGD).append(" (applied to your final bill)\n");
+        body.append("Total Estimate: S$").append(booking.totalPrice()).append("\n\n");
+        body.append("We'll send you our studio address in a separate email, 2 days before your appointment.\n\n");
+        body.append("Need to reschedule or cancel? Just let us know at least 72 hours in advance.\n\n");
+        body.append("We'll have you leaving with fresh nails and good vibes soon.\n\n");
+        body.append("With Luv,\nEvery1Luvs\n");
         return body.toString();
     }
 
