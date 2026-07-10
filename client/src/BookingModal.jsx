@@ -343,13 +343,33 @@ function DetailsStep({
   );
 }
 
+// Partially mask an email for display: keep the first character of the local
+// part and the full domain, star out the rest (e.g. "jane@gmail.com" -> "j***@gmail.com").
+function maskEmail(email) {
+  if (!email) return 'your email';
+  const at = email.indexOf('@');
+  if (at < 1) return email;
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  const visible = local.slice(0, 1);
+  const stars = '*'.repeat(Math.max(local.length - 1, 3));
+  return `${visible}${stars}@${domain}`;
+}
+
 function SuccessView({ formEmail, service, addOns, date, time, total, deposit, onClose }) {
   return (
     <div className="bk-success">
       <div className="bk-success-check"><CheckIcon /></div>
-      <h2 className="bk-success-title">You're booked!</h2>
+      <h2 className="bk-success-title">You're all set! 🎉</h2>
       <p className="bk-success-sub">
-        Confirmation sent to {formEmail || 'your email'}. Kindly send your inspo pics via DM once your deposit is paid. 💅
+        Time to give your hands the love they deserve.
+        <br /><br />
+        A confirmation email has been sent to {maskEmail(formEmail)}. Our studio address will follow
+        in a separate email 2 days before your appointment.
+        <br /><br />
+        Thank you for booking with us, we'll have you leaving with fresh nails and good vibes.
+        <br /><br />
+        See you soon!
       </p>
       <BookingSummary
         className="bk-summary bk-summary--success"

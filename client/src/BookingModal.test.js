@@ -169,7 +169,7 @@ describe('BookingModal — confirm flow', () => {
         date: DATE_STR,
       }),
     );
-    expect(await screen.findByText("You're booked!")).toBeInTheDocument();
+    expect(await screen.findByText("You're all set! 🎉")).toBeInTheDocument();
   });
 
   test('attaches an inspo image on the details step and includes it in the payload', async () => {
@@ -203,7 +203,7 @@ describe('BookingModal — confirm flow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
 
     expect(await screen.findByText('Slot already taken.')).toBeInTheDocument();
-    expect(screen.queryByText("You're booked!")).not.toBeInTheDocument();
+    expect(screen.queryByText("You're all set! 🎉")).not.toBeInTheDocument();
   });
 
   test('prefills name and email from currentUser', async () => {
