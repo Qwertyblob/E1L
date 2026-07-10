@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -70,4 +71,13 @@ public interface BookingRepository extends JpaRepository<BookingEntity, Long> {
             + "AND s.startTime > :now AND s.startTime <= :windowEnd "
             + "ORDER BY s.startTime ASC")
     List<BookingEntity> findDueForReminder(@Param("now") Instant now, @Param("windowEnd") Instant windowEnd);
+
+    // Stamp a single booking as reminded, in its own short transaction, only if it hasn't been
+    // already (the IS NULL guard makes this idempotent — a concurrent/duplicate sweep updates
+    // zero rows). Called after a confirmed send so a booking is reminded at least once.
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query("UPDATE BookingEntity b SET b.reminderSentAt = :now "
+            + "WHERE b.id = :id AND b.reminderSentAt IS NULL")
+    int markReminderSent(@Param("id") Long id, @Param("now") Instant now);
 }

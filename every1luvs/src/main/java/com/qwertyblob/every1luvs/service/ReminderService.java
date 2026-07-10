@@ -9,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -20,10 +19,13 @@ import java.util.stream.Collectors;
 
 /**
  * Sends the pre-appointment reminder email once per booking, at most ~2 days before the
- * appointment. A daily sweep picks up active BOOKED bookings whose slot starts within the next
- * {@link #REMINDER_LEAD} and that haven't been reminded yet, stamps {@code reminder_sent_at} so a
- * later sweep never double-sends, and hands the mail off to {@link BookingMailService} (async,
- * best-effort). Mirrors {@link ArchivalService}'s scheduled-sweep style and Singapore zone.
+ * appointment. Sweeps run several times a day (during salon hours) and pick up active BOOKED
+ * bookings whose slot starts within the next {@link #REMINDER_LEAD} and that haven't been
+ * reminded yet. Each reminder is sent synchronously; only a confirmed send stamps
+ * {@code reminder_sent_at}, so a transient mail failure is retried on the next sweep
+ * (at-least-once), while the null-guarded stamp keeps it to at most one reminder per booking.
+ * Running often also means a missed sweep (deploy, crash) self-heals within hours rather than a
+ * day. Mirrors {@link ArchivalService}'s scheduled-sweep style and Singapore zone.
  */
 @Service
 public class ReminderService {
@@ -46,9 +48,15 @@ public class ReminderService {
         this.bookingMailService = bookingMailService;
     }
 
-    /** Runs daily at 09:00 salon time, so reminders land at a reasonable hour. */
-    @Scheduled(cron = "0 0 9 * * *", zone = "Asia/Singapore")
-    @Transactional
+    /**
+     * Sweeps four times a day during salon hours (09:00, 13:00, 17:00, 21:00 SGT). Multiple daily
+     * sweeps give each booking several chances to be reminded, so a single missed run doesn't drop
+     * a reminder, while keeping every send inside daytime hours. The sweep is deliberately not
+     * wrapped in one big transaction: each send is followed by its own short {@code markReminderSent}
+     * write, so a crash mid-loop keeps the already-sent bookings stamped and holds no DB transaction
+     * open across SMTP calls.
+     */
+    @Scheduled(cron = "0 0 9,13,17,21 * * *", zone = "Asia/Singapore")
     public void sendDueReminders() {
         Instant now = Instant.now();
         Instant windowEnd = now.plus(REMINDER_LEAD);
@@ -70,14 +78,15 @@ public class ReminderService {
             if (slot == null) {
                 continue; // slot vanished under us; skip rather than send a detail-less reminder
             }
-            bookingMailService.sendBookingReminder(toReminderResponse(booking, slot));
-            // Stamp inside the transaction so a re-run (or the next daily sweep) can't re-send,
-            // even though the mail itself is async/best-effort.
-            booking.setReminderSentAt(now);
-            sent++;
+            // Stamp only on a confirmed send: a transient failure returns false and leaves
+            // reminder_sent_at null so the next sweep retries this booking (at-least-once).
+            if (bookingMailService.sendBookingReminder(toReminderResponse(booking, slot))) {
+                bookingRepository.markReminderSent(booking.getId(), now);
+                sent++;
+            }
         }
         if (sent > 0) {
-            log.info("Queued {} booking reminder(s) for appointments within {}", sent, REMINDER_LEAD);
+            log.info("Sent {} booking reminder(s) for appointments within {}", sent, REMINDER_LEAD);
         }
     }
 

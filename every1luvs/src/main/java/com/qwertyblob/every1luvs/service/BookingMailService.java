@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.mail.MailException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -93,14 +94,20 @@ public class BookingMailService {
 
     /**
      * Sends the pre-appointment reminder (~2 days before) with the studio address and arrival
-     * instructions. Best-effort and {@code @Async} like the confirmation. Sent as HTML so the
-     * Instagram handle is a clickable link; a mail failure is swallowed/logged and never affects
-     * the booking or its reminder-sweep bookkeeping.
+     * instructions. Sent as HTML so the Instagram handle is a clickable link.
+     *
+     * <p>Runs synchronously (unlike the confirmation) so the caller learns whether the mail
+     * actually left: {@link ReminderService} only stamps {@code reminder_sent_at} when this
+     * returns {@code true}, giving at-least-once delivery — a transient SMTP failure returns
+     * {@code false} and the booking is retried on the next sweep.
+     *
+     * @return {@code true} if the reminder was sent, or if there is no address to send to (so the
+     *     booking is settled and won't be reprocessed forever); {@code false} on a send failure
+     *     that should be retried.
      */
-    @Async
-    public void sendBookingReminder(BookingResponse booking) {
+    public boolean sendBookingReminder(BookingResponse booking) {
         if (booking == null || booking.customerEmail() == null || booking.customerEmail().isBlank()) {
-            return; // nothing to send to
+            return true; // nothing to send to — settled, don't keep reprocessing it
         }
 
         try {
@@ -114,10 +121,12 @@ public class BookingMailService {
             mailSender.send(message);
             logger.info("Booking reminder email sent to {} (booking #{})",
                     booking.customerEmail(), booking.id());
-        } catch (MessagingException e) {
-            // Swallow: the booking is unaffected, and the reminder is best-effort like all mail.
-            logger.warn("Failed to send booking reminder for booking #{}: {}",
+            return true;
+        } catch (MessagingException | MailException e) {
+            // Don't stamp: leave reminder_sent_at null so the next sweep retries this booking.
+            logger.warn("Failed to send booking reminder for booking #{}, will retry next sweep: {}",
                     booking.id(), e.getMessage());
+            return false;
         }
     }
 

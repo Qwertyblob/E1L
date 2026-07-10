@@ -5,6 +5,7 @@ import com.qwertyblob.every1luvs.dto.BookingResponse;
 import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.mail.MailSendException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
@@ -14,6 +15,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -91,8 +93,10 @@ class BookingMailServiceTest {
     void sendBookingReminder_sendsHtmlWithStudioDetailsAndClickableInstagram() throws Exception {
         when(mailSender.createMimeMessage()).thenReturn(new JavaMailSenderImpl().createMimeMessage());
 
-        service.sendBookingReminder(booking("alice@example.com", "Tier 1 — Simple", "No removal needed"));
+        boolean sentOk = service.sendBookingReminder(
+                booking("alice@example.com", "Tier 1 — Simple", "No removal needed"));
 
+        assertThat(sentOk).isTrue();
         ArgumentCaptor<MimeMessage> captor = ArgumentCaptor.forClass(MimeMessage.class);
         verify(mailSender).send(captor.capture());
         MimeMessage sent = captor.getValue();
@@ -110,8 +114,21 @@ class BookingMailServiceTest {
     }
 
     @Test
-    void sendBookingReminder_blankEmail_doesNotSend() {
-        service.sendBookingReminder(booking("  ", "Tier 1 — Simple", "No removal needed"));
+    void sendBookingReminder_sendFailure_returnsFalseSoCallerCanRetry() {
+        when(mailSender.createMimeMessage()).thenReturn(new JavaMailSenderImpl().createMimeMessage());
+        doThrow(new MailSendException("smtp down")).when(mailSender).send(any(MimeMessage.class));
+
+        boolean sentOk = service.sendBookingReminder(
+                booking("alice@example.com", "Tier 1 — Simple", "No removal needed"));
+
+        assertThat(sentOk).isFalse();
+    }
+
+    @Test
+    void sendBookingReminder_blankEmail_settledWithoutSending() {
+        boolean sentOk = service.sendBookingReminder(booking("  ", "Tier 1 — Simple", "No removal needed"));
+
+        assertThat(sentOk).isTrue(); // nothing to send, but don't keep reprocessing it
         verify(mailSender, never()).send(any(MimeMessage.class));
     }
 

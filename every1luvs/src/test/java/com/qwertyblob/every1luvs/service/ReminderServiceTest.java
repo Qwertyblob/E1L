@@ -14,6 +14,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyIterable;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -49,10 +50,11 @@ class ReminderServiceTest {
     }
 
     @Test
-    void sendDueReminders_sendsReminderAndStampsBooking() {
+    void sendDueReminders_confirmedSend_stampsBooking() {
         BookingEntity due = booking(7L, 10L);
         when(bookingRepository.findDueForReminder(any(), any())).thenReturn(List.of(due));
         when(slotRepository.findAllById(anyIterable())).thenReturn(List.of(slot(10L)));
+        when(mailService.sendBookingReminder(any())).thenReturn(true);
 
         service.sendDueReminders();
 
@@ -60,7 +62,20 @@ class ReminderServiceTest {
         verify(mailService).sendBookingReminder(captor.capture());
         assertThat(captor.getValue().customerEmail()).isEqualTo("alice@example.com");
         assertThat(captor.getValue().slotStartTime()).isEqualTo(Instant.parse("2026-06-15T14:00:00Z"));
-        assertThat(due.getReminderSentAt()).isNotNull();
+        // Stamped only after the confirmed send.
+        verify(bookingRepository).markReminderSent(eq(7L), any());
+    }
+
+    @Test
+    void sendDueReminders_sendFails_doesNotStampSoItRetriesNextSweep() {
+        BookingEntity due = booking(7L, 10L);
+        when(bookingRepository.findDueForReminder(any(), any())).thenReturn(List.of(due));
+        when(slotRepository.findAllById(anyIterable())).thenReturn(List.of(slot(10L)));
+        when(mailService.sendBookingReminder(any())).thenReturn(false); // transient failure
+
+        service.sendDueReminders();
+
+        verify(bookingRepository, never()).markReminderSent(any(), any());
     }
 
     @Test
@@ -81,6 +96,6 @@ class ReminderServiceTest {
         service.sendDueReminders();
 
         verify(mailService, never()).sendBookingReminder(any());
-        assertThat(due.getReminderSentAt()).isNull();
+        verify(bookingRepository, never()).markReminderSent(any(), any());
     }
 }
