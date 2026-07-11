@@ -80,14 +80,16 @@ The admin also gets a full copy of every booking (with any inspo photos) on book
 `COMPLETED`. A no-show is never marked completed, so it is never asked to review or nudged to
 rebook — no separate "no-show" status is needed.
 
-**Enabling the review and rebooking emails:** both are **dormant until their destination URL is
-configured** — nothing is sent and no booking is stamped while the URL is blank, so you can switch
-them on later without missing recent clients:
+**Destination links:**
 
-- `REVIEW_URL` — where the review email links (e.g. your Google Business "write a review" page).
+- `REVIEW_URL` — where the review email links. **Defaults to the site's services section**
+  (`https://every1luvs.com/#services`), so the review email is on by default. Override it with a
+  dedicated review page (e.g. a Google Business "write a review" link) when you have one.
 - `BOOKING_URL` — where the rebooking button links (your booking page, e.g. `https://every1luvs.com`).
+  **Dormant until set** — no rebooking emails go out while it's blank, so setting it later still
+  catches recent clients.
 
-Set them in the server `.env` (see `.env.example`). Confirmation and reminder emails need no extra
+Set these in the server `.env` (see `.env.example`). Confirmation and reminder emails need no extra
 config beyond SMTP.
 
 ## Testing
