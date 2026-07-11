@@ -70,6 +70,11 @@ public class BookingEntity {
     @Column(name = "reminder_sent_at")
     private Instant reminderSentAt;
 
+    // When the post-appointment review-request email was sent (null = not yet asked). Stamped by
+    // ReviewRequestService, and only ever for COMPLETED bookings, so a booking is asked at most once.
+    @Column(name = "review_sent_at")
+    private Instant reviewSentAt;
+
     @CreationTimestamp
     @Column(updatable = false)
     private Instant createdAt;
@@ -131,6 +136,9 @@ public class BookingEntity {
 
     public Instant getReminderSentAt() { return reminderSentAt; }
     public void setReminderSentAt(Instant reminderSentAt) { this.reminderSentAt = reminderSentAt; }
+
+    public Instant getReviewSentAt() { return reviewSentAt; }
+    public void setReviewSentAt(Instant reviewSentAt) { this.reviewSentAt = reviewSentAt; }
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }

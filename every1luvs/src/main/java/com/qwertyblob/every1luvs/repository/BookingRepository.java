@@ -80,4 +80,23 @@ public interface BookingRepository extends JpaRepository<BookingEntity, Long> {
     @Query("UPDATE BookingEntity b SET b.reminderSentAt = :now "
             + "WHERE b.id = :id AND b.reminderSentAt IS NULL")
     int markReminderSent(@Param("id") Long id, @Param("now") Instant now);
+
+    // COMPLETED bookings not yet asked for a review, whose appointment (slot end_time) is recent
+    // (>= recencyFloor). Only COMPLETED rows qualify, so no-shows/cancellations are excluded; the
+    // recency floor stops the fallback sweep from backfilling months-old clients when the review
+    // link is first configured. Joined to the slot for the email's appointment details.
+    @Query("SELECT b FROM BookingEntity b, SlotEntity s WHERE b.slotId = s.id "
+            + "AND b.status = 'COMPLETED' AND b.archivedAt IS NULL AND b.reviewSentAt IS NULL "
+            + "AND s.endTime >= :recencyFloor "
+            + "ORDER BY s.endTime ASC")
+    List<BookingEntity> findDueForReview(@Param("recencyFloor") Instant recencyFloor);
+
+    // Stamp a single booking as review-asked, in its own short transaction, only if it hasn't been
+    // already (the IS NULL guard makes this idempotent — a race between the immediate on-complete
+    // send and the fallback sweep updates zero rows the second time). Called after a confirmed send.
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query("UPDATE BookingEntity b SET b.reviewSentAt = :now "
+            + "WHERE b.id = :id AND b.reviewSentAt IS NULL")
+    int markReviewSent(@Param("id") Long id, @Param("now") Instant now);
 }

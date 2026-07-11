@@ -64,15 +64,26 @@ public class BookingMailService {
     // booking — the bootstrap admin's email. Falls back to the from address if it is unset so the
     // notification always lands somewhere readable.
     private final String adminAddress;
+    // Destination for the post-appointment review request (e.g. a Google Business "write a review"
+    // link). Blank until configured; while blank the review-request feature is dormant — nothing is
+    // sent and no booking is stamped, so it can be switched on later without missing recent clients.
+    private final String reviewUrl;
 
     public BookingMailService(
             JavaMailSender mailSender,
             @Value("${app.mail.from}") String fromAddress,
-            @Value("${app.auth.bootstrap-admin-email:}") String adminAddress
+            @Value("${app.auth.bootstrap-admin-email:}") String adminAddress,
+            @Value("${app.review.url:}") String reviewUrl
     ) {
         this.mailSender = mailSender;
         this.fromAddress = fromAddress;
         this.adminAddress = (adminAddress == null || adminAddress.isBlank()) ? fromAddress : adminAddress;
+        this.reviewUrl = reviewUrl == null ? "" : reviewUrl.trim();
+    }
+
+    /** Whether review requests can be sent — false until a review URL is configured (feature dormant). */
+    public boolean isReviewRequestEnabled() {
+        return !reviewUrl.isBlank();
     }
 
     @Async
@@ -125,6 +136,45 @@ public class BookingMailService {
         } catch (MessagingException | MailException e) {
             // Don't stamp: leave reminder_sent_at null so the next sweep retries this booking.
             logger.warn("Failed to send booking reminder for booking #{}, will retry next sweep: {}",
+                    booking.id(), e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Sends the post-appointment review request. Only ever called for COMPLETED bookings (see
+     * {@link ReviewRequestService}), so no-shows are never asked. Synchronous and HTML (so the
+     * review link is clickable), returning whether the caller should stamp {@code review_sent_at}:
+     * the immediate on-complete path and the fallback sweep both stamp only on {@code true}, giving
+     * at-least-once delivery capped at one request per booking.
+     *
+     * @return {@code true} if the request was sent, or if there is no address to send to;
+     *     {@code false} if the feature is disabled (no review URL configured — nothing is stamped,
+     *     so it sends once enabled) or a transient send failure occurred (retried next sweep).
+     */
+    public boolean sendReviewRequest(BookingResponse booking) {
+        if (!isReviewRequestEnabled()) {
+            return false; // dormant until a review URL is configured — don't send, don't stamp
+        }
+        if (booking == null || booking.customerEmail() == null || booking.customerEmail().isBlank()) {
+            return true; // nothing to send to — settled, don't keep reprocessing it
+        }
+
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
+            helper.setFrom(fromAddress);
+            helper.setTo(booking.customerEmail());
+            helper.setSubject("How did we do? — leave Every1Luvs a review");
+            helper.setText(buildReviewHtml(booking), true);
+
+            mailSender.send(message);
+            logger.info("Review request email sent to {} (booking #{})",
+                    booking.customerEmail(), booking.id());
+            return true;
+        } catch (MessagingException | MailException e) {
+            // Don't stamp: leave review_sent_at null so the next sweep retries this booking.
+            logger.warn("Failed to send review request for booking #{}, will retry next sweep: {}",
                     booking.id(), e.getMessage());
             return false;
         }
@@ -284,5 +334,20 @@ public class BookingMailService {
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;");
+    }
+
+    // HTML body for the post-appointment review request. PLACEHOLDER COPY — swap in the owner's
+    // final wording before enabling the feature; the clickable review-link button and the escaped
+    // customer name are the parts to keep. reviewUrl is guaranteed non-blank here (guarded by
+    // isReviewRequestEnabled in the only caller).
+    private String buildReviewHtml(BookingResponse booking) {
+        String name = htmlEscape(safe(booking.userName()));
+        return "<p>Hi " + name + ",</p>"
+                + "<p>Thank you for visiting Every1Luvs — we hope you're loving your nails!</p>"
+                + "<p>If you have a moment, we'd be so grateful if you left us a quick review. "
+                + "It genuinely helps our little studio grow.</p>"
+                + "<p><a href=\"" + htmlEscape(reviewUrl) + "\">Leave us a review</a></p>"
+                + "<p>Can't wait to see you again soon.</p>"
+                + "<p>With Luv,<br>Every1Luvs</p>";
     }
 }

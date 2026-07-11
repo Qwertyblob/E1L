@@ -25,9 +25,10 @@ class BookingMailServiceTest {
 
     private static final String FROM = "no-reply@every1luvs.test";
     private static final String ADMIN = "admin@every1luvs.test";
+    private static final String REVIEW_URL = "https://g.page/r/every1luvs/review";
 
     private final JavaMailSender mailSender = mock(JavaMailSender.class);
-    private final BookingMailService service = new BookingMailService(mailSender, FROM, ADMIN);
+    private final BookingMailService service = new BookingMailService(mailSender, FROM, ADMIN, REVIEW_URL);
 
     private static BookingResponse booking(String email, String nailArt, String removal) {
         return new BookingResponse(
@@ -130,6 +131,48 @@ class BookingMailServiceTest {
 
         assertThat(sentOk).isTrue(); // nothing to send, but don't keep reprocessing it
         verify(mailSender, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
+    void sendReviewRequest_sendsHtmlWithClickableReviewLink() throws Exception {
+        when(mailSender.createMimeMessage()).thenReturn(new JavaMailSenderImpl().createMimeMessage());
+
+        boolean sentOk = service.sendReviewRequest(
+                booking("alice@example.com", "Tier 1 — Simple", "No removal needed"));
+
+        assertThat(sentOk).isTrue();
+        ArgumentCaptor<MimeMessage> captor = ArgumentCaptor.forClass(MimeMessage.class);
+        verify(mailSender).send(captor.capture());
+        MimeMessage sent = captor.getValue();
+
+        assertThat(sent.getAllRecipients()[0].toString()).isEqualTo("alice@example.com");
+        String html = sent.getContent().toString();
+        assertThat(html)
+                .contains("Hi Alice")
+                .contains("<a href=\"" + REVIEW_URL + "\">");
+    }
+
+    @Test
+    void sendReviewRequest_disabledWhenNoReviewUrl_doesNotSend() {
+        BookingMailService dormant = new BookingMailService(mailSender, FROM, ADMIN, "");
+
+        boolean sentOk = dormant.sendReviewRequest(
+                booking("alice@example.com", "Tier 1 — Simple", "No removal needed"));
+
+        assertThat(sentOk).isFalse();           // not sent, and caller must NOT stamp it
+        assertThat(dormant.isReviewRequestEnabled()).isFalse();
+        verify(mailSender, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
+    void sendReviewRequest_sendFailure_returnsFalseSoCallerCanRetry() {
+        when(mailSender.createMimeMessage()).thenReturn(new JavaMailSenderImpl().createMimeMessage());
+        doThrow(new MailSendException("smtp down")).when(mailSender).send(any(MimeMessage.class));
+
+        boolean sentOk = service.sendReviewRequest(
+                booking("alice@example.com", "Tier 1 — Simple", "No removal needed"));
+
+        assertThat(sentOk).isFalse();
     }
 
     @Test

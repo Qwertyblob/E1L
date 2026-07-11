@@ -6,6 +6,7 @@ import com.qwertyblob.every1luvs.dto.PageResponse;
 import com.qwertyblob.every1luvs.security.ClientIpResolver;
 import com.qwertyblob.every1luvs.service.BookingMailService;
 import com.qwertyblob.every1luvs.service.BookingService;
+import com.qwertyblob.every1luvs.service.ReviewRequestService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,7 @@ class BookingControllerTest {
 
     @Mock BookingService bookingService;
     @Mock BookingMailService bookingMailService;
+    @Mock ReviewRequestService reviewRequestService;
 
     // Default controller trusts only the peer address (trustForwardedFor=false); the
     // trust-enabled variant is constructed inline in its own test.
@@ -42,7 +44,8 @@ class BookingControllerTest {
 
     @BeforeEach
     void setUp() {
-        bookingController = new BookingController(bookingService, bookingMailService, new ClientIpResolver(false));
+        bookingController = new BookingController(
+                bookingService, bookingMailService, reviewRequestService, new ClientIpResolver(false));
     }
 
     private static BookingResponse booking(Long id, String status) {
@@ -91,7 +94,7 @@ class BookingControllerTest {
     void createGuestBooking_trustsForwardedForWhenEnabled_returns201() {
         // With trust enabled (behind a trusted proxy), the first X-Forwarded-For hop is used.
         BookingController trustingController =
-                new BookingController(bookingService, bookingMailService, new ClientIpResolver(true));
+                new BookingController(bookingService, bookingMailService, reviewRequestService, new ClientIpResolver(true));
         HttpServletRequest httpRequest = mock(HttpServletRequest.class);
         when(httpRequest.getHeader("X-Forwarded-For")).thenReturn("198.51.100.7, 10.0.0.1");
         CreateBookingRequest request = new CreateBookingRequest(10L);
@@ -153,10 +156,12 @@ class BookingControllerTest {
     }
 
     @Test
-    void adminCompleteBooking_delegatesToService() {
+    void adminCompleteBooking_delegatesToServiceAndTriggersReviewRequest() {
         BookingResponse completed = booking(1L, "COMPLETED");
         when(bookingService.adminCompleteBooking(1L)).thenReturn(completed);
 
         assertThat(bookingController.adminCompleteBooking(1L)).isEqualTo(completed);
+        // Completing a booking kicks off the post-appointment review request (dormant unless enabled).
+        verify(reviewRequestService).sendReviewRequestNow(completed);
     }
 }
