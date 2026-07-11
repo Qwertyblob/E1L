@@ -60,6 +60,36 @@ tiers, add-ons, prices, and durations. The frontend renders from it, and the Mav
 onto the backend classpath so the server recomputes booking totals from the same data. Edit prices
 in that one file.
 
+## Automated customer emails
+
+The booking flow sends a series of lifecycle emails. All are **best-effort** (async / off the
+request thread), so a mail hiccup never fails a booking. The time-based ones run as scheduled
+sweeps (Asia/Singapore) and are **idempotent** — each is sent at most once per booking, tracked by
+a `*_sent_at` column, and retried on the next sweep if a send fails.
+
+| Email | When | Sent to |
+|-------|------|---------|
+| **Confirmation** | Immediately on booking | Everyone who books |
+| **Reminder** | ~2 days before the appointment | Active (`BOOKED`) bookings |
+| **Review request** | Right after the appointment is marked **Completed** (+ a fallback sweep) | `COMPLETED` bookings only |
+| **Rebooking prompt** | ~3 weeks after the appointment | `COMPLETED` bookings only |
+
+The admin also gets a full copy of every booking (with any inspo photos) on booking.
+
+**No-show handling:** the review and rebooking emails go **only** to bookings an admin has marked
+`COMPLETED`. A no-show is never marked completed, so it is never asked to review or nudged to
+rebook — no separate "no-show" status is needed.
+
+**Enabling the review and rebooking emails:** both are **dormant until their destination URL is
+configured** — nothing is sent and no booking is stamped while the URL is blank, so you can switch
+them on later without missing recent clients:
+
+- `REVIEW_URL` — where the review email links (e.g. your Google Business "write a review" page).
+- `BOOKING_URL` — where the rebooking button links (your booking page, e.g. `https://every1luvs.com`).
+
+Set them in the server `.env` (see `.env.example`). Confirmation and reminder emails need no extra
+config beyond SMTP.
+
 ## Testing
 
 - Backend: `./mvnw -B test` (JUnit, JaCoCo coverage at `target/site/jacoco/`).
