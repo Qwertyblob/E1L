@@ -68,22 +68,32 @@ public class BookingMailService {
     // link). Blank until configured; while blank the review-request feature is dormant — nothing is
     // sent and no booking is stamped, so it can be switched on later without missing recent clients.
     private final String reviewUrl;
+    // Destination for the ~3-weeks-after rebooking prompt (the studio's booking page). Blank until
+    // configured; while blank the rebooking feature is dormant, same as reviewUrl above.
+    private final String rebookingUrl;
 
     public BookingMailService(
             JavaMailSender mailSender,
             @Value("${app.mail.from}") String fromAddress,
             @Value("${app.auth.bootstrap-admin-email:}") String adminAddress,
-            @Value("${app.review.url:}") String reviewUrl
+            @Value("${app.review.url:}") String reviewUrl,
+            @Value("${app.rebooking.url:}") String rebookingUrl
     ) {
         this.mailSender = mailSender;
         this.fromAddress = fromAddress;
         this.adminAddress = (adminAddress == null || adminAddress.isBlank()) ? fromAddress : adminAddress;
         this.reviewUrl = reviewUrl == null ? "" : reviewUrl.trim();
+        this.rebookingUrl = rebookingUrl == null ? "" : rebookingUrl.trim();
     }
 
     /** Whether review requests can be sent — false until a review URL is configured (feature dormant). */
     public boolean isReviewRequestEnabled() {
         return !reviewUrl.isBlank();
+    }
+
+    /** Whether rebooking prompts can be sent — false until a booking URL is configured (feature dormant). */
+    public boolean isRebookingEnabled() {
+        return !rebookingUrl.isBlank();
     }
 
     @Async
@@ -175,6 +185,44 @@ public class BookingMailService {
         } catch (MessagingException | MailException e) {
             // Don't stamp: leave review_sent_at null so the next sweep retries this booking.
             logger.warn("Failed to send review request for booking #{}, will retry next sweep: {}",
+                    booking.id(), e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Sends the ~3-weeks-after rebooking prompt. Only ever called for COMPLETED bookings (see
+     * {@link RebookingService}), so no-shows are never nudged. Synchronous and HTML (clickable
+     * booking link), returning whether the caller should stamp {@code rebooking_sent_at}: the sweep
+     * stamps only on {@code true}, giving at-least-once delivery capped at one nudge per booking.
+     *
+     * @return {@code true} if the prompt was sent, or if there is no address to send to;
+     *     {@code false} if the feature is disabled (no booking URL configured) or a transient send
+     *     failure occurred (retried next sweep).
+     */
+    public boolean sendRebookingPrompt(BookingResponse booking) {
+        if (!isRebookingEnabled()) {
+            return false; // dormant until a booking URL is configured — don't send, don't stamp
+        }
+        if (booking == null || booking.customerEmail() == null || booking.customerEmail().isBlank()) {
+            return true; // nothing to send to — settled, don't keep reprocessing it
+        }
+
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
+            helper.setFrom(fromAddress);
+            helper.setTo(booking.customerEmail());
+            helper.setSubject("Nail Refresh Time?");
+            helper.setText(buildRebookingHtml(booking), true);
+
+            mailSender.send(message);
+            logger.info("Rebooking prompt email sent to {} (booking #{})",
+                    booking.customerEmail(), booking.id());
+            return true;
+        } catch (MessagingException | MailException e) {
+            // Don't stamp: leave rebooking_sent_at null so the next sweep retries this booking.
+            logger.warn("Failed to send rebooking prompt for booking #{}, will retry next sweep: {}",
                     booking.id(), e.getMessage());
             return false;
         }
@@ -349,5 +397,16 @@ public class BookingMailService {
                 + "<a href=\"" + INSTAGRAM_URL + "\">" + INSTAGRAM_HANDLE + "</a>.</p>"
                 + "<p>Thank you again for trusting us with your hands.</p>"
                 + "<p>With Luv,<br>Every1Luvs</p>";
+    }
+
+    // HTML body for the ~3-weeks-after rebooking prompt. rebookingUrl is guaranteed non-blank here
+    // (guarded by isRebookingEnabled in the only caller); the customer name is HTML-escaped.
+    private String buildRebookingHtml(BookingResponse booking) {
+        String name = htmlEscape(safe(booking.userName()));
+        return "<p>Hi " + name + ",</p>"
+                + "<p>It's been a few weeks since your last visit — how are your nails holding up?</p>"
+                + "<p>If you're due for a refresh, we'd love to have you back.</p>"
+                + "<p><a href=\"" + htmlEscape(rebookingUrl) + "\">Book Your Next Appointment →</a></p>"
+                + "<p>Talk soon,<br>Every1luvs</p>";
     }
 }

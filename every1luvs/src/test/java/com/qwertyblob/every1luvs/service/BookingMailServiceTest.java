@@ -26,9 +26,11 @@ class BookingMailServiceTest {
     private static final String FROM = "no-reply@every1luvs.test";
     private static final String ADMIN = "admin@every1luvs.test";
     private static final String REVIEW_URL = "https://g.page/r/every1luvs/review";
+    private static final String BOOKING_URL = "https://every1luvs.com";
 
     private final JavaMailSender mailSender = mock(JavaMailSender.class);
-    private final BookingMailService service = new BookingMailService(mailSender, FROM, ADMIN, REVIEW_URL);
+    private final BookingMailService service =
+            new BookingMailService(mailSender, FROM, ADMIN, REVIEW_URL, BOOKING_URL);
 
     private static BookingResponse booking(String email, String nailArt, String removal) {
         return new BookingResponse(
@@ -156,7 +158,7 @@ class BookingMailServiceTest {
 
     @Test
     void sendReviewRequest_disabledWhenNoReviewUrl_doesNotSend() {
-        BookingMailService dormant = new BookingMailService(mailSender, FROM, ADMIN, "");
+        BookingMailService dormant = new BookingMailService(mailSender, FROM, ADMIN, "", BOOKING_URL);
 
         boolean sentOk = dormant.sendReviewRequest(
                 booking("alice@example.com", "Tier 1 — Simple", "No removal needed"));
@@ -172,6 +174,49 @@ class BookingMailServiceTest {
         doThrow(new MailSendException("smtp down")).when(mailSender).send(any(MimeMessage.class));
 
         boolean sentOk = service.sendReviewRequest(
+                booking("alice@example.com", "Tier 1 — Simple", "No removal needed"));
+
+        assertThat(sentOk).isFalse();
+    }
+
+    @Test
+    void sendRebookingPrompt_sendsHtmlWithClickableBookingLink() throws Exception {
+        when(mailSender.createMimeMessage()).thenReturn(new JavaMailSenderImpl().createMimeMessage());
+
+        boolean sentOk = service.sendRebookingPrompt(
+                booking("alice@example.com", "Tier 1 — Simple", "No removal needed"));
+
+        assertThat(sentOk).isTrue();
+        ArgumentCaptor<MimeMessage> captor = ArgumentCaptor.forClass(MimeMessage.class);
+        verify(mailSender).send(captor.capture());
+        MimeMessage sent = captor.getValue();
+
+        assertThat(sent.getSubject()).isEqualTo("Nail Refresh Time?");
+        assertThat(sent.getAllRecipients()[0].toString()).isEqualTo("alice@example.com");
+        String html = sent.getContent().toString();
+        assertThat(html)
+                .contains("Hi Alice")
+                .contains("<a href=\"" + BOOKING_URL + "\">Book Your Next Appointment →</a>");
+    }
+
+    @Test
+    void sendRebookingPrompt_disabledWhenNoBookingUrl_doesNotSend() {
+        BookingMailService dormant = new BookingMailService(mailSender, FROM, ADMIN, REVIEW_URL, "");
+
+        boolean sentOk = dormant.sendRebookingPrompt(
+                booking("alice@example.com", "Tier 1 — Simple", "No removal needed"));
+
+        assertThat(sentOk).isFalse();           // not sent, and caller must NOT stamp it
+        assertThat(dormant.isRebookingEnabled()).isFalse();
+        verify(mailSender, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
+    void sendRebookingPrompt_sendFailure_returnsFalseSoCallerCanRetry() {
+        when(mailSender.createMimeMessage()).thenReturn(new JavaMailSenderImpl().createMimeMessage());
+        doThrow(new MailSendException("smtp down")).when(mailSender).send(any(MimeMessage.class));
+
+        boolean sentOk = service.sendRebookingPrompt(
                 booking("alice@example.com", "Tier 1 — Simple", "No removal needed"));
 
         assertThat(sentOk).isFalse();

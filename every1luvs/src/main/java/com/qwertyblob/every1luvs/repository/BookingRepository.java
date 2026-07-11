@@ -99,4 +99,24 @@ public interface BookingRepository extends JpaRepository<BookingEntity, Long> {
     @Query("UPDATE BookingEntity b SET b.reviewSentAt = :now "
             + "WHERE b.id = :id AND b.reviewSentAt IS NULL")
     int markReviewSent(@Param("id") Long id, @Param("now") Instant now);
+
+    // COMPLETED bookings not yet nudged to rebook, whose appointment (slot end_time) is due — at
+    // least the rebooking delay ago (endTime <= dueBefore) but no older than the grace floor
+    // (endTime >= floor). Only COMPLETED rows qualify, so no-shows/cancellations are excluded; the
+    // bounded window stops the sweep from backfilling a year of clients on first enable and lets a
+    // missed run self-heal. Joined to the slot for the email.
+    @Query("SELECT b FROM BookingEntity b, SlotEntity s WHERE b.slotId = s.id "
+            + "AND b.status = 'COMPLETED' AND b.archivedAt IS NULL AND b.rebookingSentAt IS NULL "
+            + "AND s.endTime <= :dueBefore AND s.endTime >= :floor "
+            + "ORDER BY s.endTime ASC")
+    List<BookingEntity> findDueForRebooking(@Param("dueBefore") Instant dueBefore, @Param("floor") Instant floor);
+
+    // Stamp a single booking as rebooking-nudged, in its own short transaction, only if it hasn't
+    // been already (the IS NULL guard makes this idempotent — a concurrent sweep updates zero rows
+    // the second time). Called after a confirmed send.
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query("UPDATE BookingEntity b SET b.rebookingSentAt = :now "
+            + "WHERE b.id = :id AND b.rebookingSentAt IS NULL")
+    int markRebookingSent(@Param("id") Long id, @Param("now") Instant now);
 }
