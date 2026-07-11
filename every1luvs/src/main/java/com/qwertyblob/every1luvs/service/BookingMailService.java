@@ -165,7 +165,7 @@ public class BookingMailService {
             MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
             helper.setFrom(fromAddress);
             helper.setTo(booking.customerEmail());
-            helper.setSubject("How did we do? — leave Every1Luvs a review");
+            helper.setSubject("How were your nails? We'd love to hear from you");
             helper.setText(buildReviewHtml(booking), true);
 
             mailSender.send(message);
@@ -336,18 +336,18 @@ public class BookingMailService {
                 .replace("\"", "&quot;");
     }
 
-    // HTML body for the post-appointment review request. PLACEHOLDER COPY — swap in the owner's
-    // final wording before enabling the feature; the clickable review-link button and the escaped
-    // customer name are the parts to keep. reviewUrl is guaranteed non-blank here (guarded by
-    // isReviewRequestEnabled in the only caller).
+    // HTML body for the post-appointment review request. reviewUrl is guaranteed non-blank here
+    // (guarded by isReviewRequestEnabled in the only caller); the customer name is HTML-escaped.
     private String buildReviewHtml(BookingResponse booking) {
         String name = htmlEscape(safe(booking.userName()));
         return "<p>Hi " + name + ",</p>"
-                + "<p>Thank you for visiting Every1Luvs — we hope you're loving your nails!</p>"
-                + "<p>If you have a moment, we'd be so grateful if you left us a quick review. "
-                + "It genuinely helps our little studio grow.</p>"
-                + "<p><a href=\"" + htmlEscape(reviewUrl) + "\">Leave us a review</a></p>"
-                + "<p>Can't wait to see you again soon.</p>"
+                + "<p>Thank you for choosing Every1Luvs — we hope you're loving your fresh set!</p>"
+                + "<p>Your feedback means the world to us and helps other clients discover the studio "
+                + "too. Could you spare a minute to leave us a review?</p>"
+                + "<p><a href=\"" + htmlEscape(reviewUrl) + "\">Leave a Review →</a></p>"
+                + "<p>We'd also love to see your nails! Tag us on Instagram "
+                + "<a href=\"" + INSTAGRAM_URL + "\">" + INSTAGRAM_HANDLE + "</a>.</p>"
+                + "<p>Thank you again for trusting us with your hands.</p>"
                 + "<p>With Luv,<br>Every1Luvs</p>";
     }
 }

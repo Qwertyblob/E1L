@@ -145,11 +145,13 @@ class BookingMailServiceTest {
         verify(mailSender).send(captor.capture());
         MimeMessage sent = captor.getValue();
 
+        assertThat(sent.getSubject()).isEqualTo("How were your nails? We'd love to hear from you");
         assertThat(sent.getAllRecipients()[0].toString()).isEqualTo("alice@example.com");
         String html = sent.getContent().toString();
         assertThat(html)
                 .contains("Hi Alice")
-                .contains("<a href=\"" + REVIEW_URL + "\">");
+                .contains("<a href=\"" + REVIEW_URL + "\">Leave a Review →</a>")
+                .contains("<a href=\"https://instagram.com/every1luvsnails\">@every1luvsnails</a>");
     }
 
     @Test
