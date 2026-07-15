@@ -61,6 +61,24 @@ function computeEstimatedDuration(service, nailArt, removal) {
   return baseDuration + nailArtDuration + removalDuration;
 }
 
+// Length of a slot in minutes, from its stored start/end (wall-clock-as-UTC; the difference is
+// independent of how the instant is interpreted).
+function slotDurationMin(slot) {
+  if (!slot?.startTime || !slot?.endTime) return 0;
+  const start = new Date(slot.startTime).getTime();
+  const end = new Date(slot.endTime).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return 0;
+  return Math.round((end - start) / 60000);
+}
+
+// Whether a slot is long enough for the chosen service + add-ons. The single predicate used by
+// BOTH the displayed availability and resolveSlotId, so a slot shown as bookable is the one
+// submitted (two slots sharing a start time but different lengths won't diverge). The server
+// re-checks this — it stays authoritative.
+function slotCanFit(slot, requiredDurationMin) {
+  return slotDurationMin(slot) >= requiredDurationMin;
+}
+
 // Human-readable list of the chosen add-ons for the recap rows. "none" selections (the default
 // nail-art/removal options) are omitted; shows "None" when nothing extra is added.
 function formatAddOns(nailArt, removal) {
@@ -465,13 +483,21 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     return () => { cancelled = true; };
   }, []);
 
+  const service = useMemo(
+    () => NAIL_SERVICES.find((s) => s.id === serviceId) || null,
+    [serviceId],
+  );
+  // Time the chosen service + add-ons need; slots shorter than this are hidden and unselectable.
+  const estimatedDuration = computeEstimatedDuration(service, nailArt, removal);
+
   // Map of available dates -> sorted unique start times (read from the stored
   // wall-clock; slots are persisted as UTC so the ISO date/time substrings are
-  // the intended local values).
+  // the intended local values). Slots too short for the current selection are excluded.
   const availabilityByDate = useMemo(() => {
     const map = new Map();
     for (const slot of availableSlots) {
       if (!slot?.startTime || slot.available === false) continue;
+      if (!slotCanFit(slot, estimatedDuration)) continue;
       const iso = String(slot.startTime);
       const dateKey = iso.slice(0, 10);
       const timeVal = iso.slice(11, 16);
@@ -484,19 +510,14 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
       result[d] = [...times].sort();
     }
     return result;
-  }, [availableSlots]);
+  }, [availableSlots, estimatedDuration]);
 
   const availableTimes = date ? (availabilityByDate[date] || []) : [];
 
   const services = NAIL_SERVICES;
-  const service = useMemo(
-    () => NAIL_SERVICES.find((s) => s.id === serviceId) || null,
-    [serviceId],
-  );
 
   const total = computeTotal(service, nailArt, removal);
   const addOnsLabel = formatAddOns(nailArt, removal);
-  const estimatedDuration = computeEstimatedDuration(service, nailArt, removal);
   const deposit = 30;
 
   const canContinue = (() => {
@@ -530,6 +551,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   function resolveSlotId() {
     const match = availableSlots.find(
       (s) => s?.available !== false
+        && slotCanFit(s, estimatedDuration)
         && String(s.startTime).slice(0, 10) === date
         && String(s.startTime).slice(11, 16) === time,
     );

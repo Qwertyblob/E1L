@@ -12,10 +12,11 @@ const Y = NOW.getFullYear();
 const M = String(NOW.getMonth() + 1).padStart(2, '0');
 const DATE_STR = `${Y}-${M}-15`;
 
+// 4-hour slots so any service + add-on combination (max 180 min) fits the duration check.
 const SLOTS = [
-  { id: 101, startTime: `${DATE_STR}T14:00:00Z`, available: true },
-  { id: 102, startTime: `${DATE_STR}T10:00:00Z`, available: true },
-  { id: 103, startTime: `${DATE_STR}T09:00:00Z`, available: false }, // filtered out
+  { id: 101, startTime: `${DATE_STR}T14:00:00Z`, endTime: `${DATE_STR}T18:00:00Z`, available: true },
+  { id: 102, startTime: `${DATE_STR}T10:00:00Z`, endTime: `${DATE_STR}T14:00:00Z`, available: true },
+  { id: 103, startTime: `${DATE_STR}T09:00:00Z`, endTime: `${DATE_STR}T13:00:00Z`, available: false }, // filtered out
 ];
 
 function mockSlots(slots = SLOTS) {

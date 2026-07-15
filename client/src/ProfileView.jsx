@@ -8,6 +8,16 @@ import {
   timeToMinutes,
 } from './slotBuilderUtils';
 
+// Whether an appointment's slot has ended in the salon's wall-clock. Slot times are stored as
+// Singapore wall-clock labelled UTC, so "now" in that convention is real UTC now + 8h — matching
+// BookingWindow.currentBusinessWallClockUtc() on the server, which gates completion.
+function appointmentEnded(booking) {
+  if (!booking?.slotEndTime) return false;
+  const end = new Date(booking.slotEndTime).getTime();
+  if (Number.isNaN(end)) return false;
+  return end <= Date.now() + 8 * 60 * 60 * 1000;
+}
+
 function formatDateShort(dateStr) {
   const [, mm, dd] = dateStr.split('-').map(Number);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -385,7 +395,13 @@ function ScheduleBookingsPanel({
             </strong>
             {booking.status === 'BOOKED' && (
               <div className="schedule-row-actions">
-                <button className="text-button" onClick={(e) => { e.stopPropagation(); handleAdminCompleteBooking(booking.id); }} type="button">
+                <button
+                  className="text-button"
+                  onClick={(e) => { e.stopPropagation(); handleAdminCompleteBooking(booking.id); }}
+                  type="button"
+                  disabled={!appointmentEnded(booking)}
+                  title={appointmentEnded(booking) ? undefined : 'Can only complete after the appointment has ended'}
+                >
                   Complete
                 </button>
                 <button className="text-button" onClick={(e) => { e.stopPropagation(); handleAdminCancelBooking(booking.id); }} type="button">
