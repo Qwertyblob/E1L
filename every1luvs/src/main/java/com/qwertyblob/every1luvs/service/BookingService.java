@@ -9,6 +9,7 @@ import com.qwertyblob.every1luvs.entity.UserEntity;
 import com.qwertyblob.every1luvs.repository.BookingRepository;
 import com.qwertyblob.every1luvs.repository.SlotRepository;
 import com.qwertyblob.every1luvs.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -30,10 +32,12 @@ import java.util.stream.Collectors;
 @Service
 public class BookingService {
 
-    // Guest (anonymous) bookings are unauthenticated, so cap them per client IP to stop
-    // a script from filling every slot to capacity.
-    private static final int MAX_GUEST_BOOKINGS = 5;
-    private static final long GUEST_BOOKING_WINDOW_MS = 60 * 60 * 1_000L;
+    // Booking-abuse limits. The per-IP bucket bounds anonymous floods (a script filling every
+    // slot); the per-user bucket + the active-booking cap bound a single authenticated account,
+    // which would otherwise bypass the limiter entirely. Both windows are one hour.
+    private static final int MAX_BOOKINGS_PER_IP = 5;
+    private static final int MAX_BOOKINGS_PER_USER = 10;
+    private static final long BOOKING_WINDOW_MS = 60 * 60 * 1_000L;
 
     // Contact-field bounds. The length caps mirror the tbl_bookings columns
     // (customer_name/customer_email/instagram VARCHAR(255), phone VARCHAR(64),
@@ -57,6 +61,11 @@ public class BookingService {
     private final SlotRepository slotRepository;
     private final UserRepository userRepository;
     private final RateLimiterService rateLimiter;
+
+    // Max concurrent UPCOMING bookings a single account may hold. The initializer is the same as
+    // the property default so unit tests (which construct this bean directly) get the real cap.
+    @Value("${app.booking.max-active-per-user:5}")
+    private int maxActiveBookingsPerUser = 5;
 
     public BookingService(
             BookingRepository bookingRepository,
@@ -94,10 +103,17 @@ public class BookingService {
             if (guestEmail.length() > MAX_CUSTOMER_EMAIL_LENGTH || !EMAIL_PATTERN.matcher(guestEmail).matches()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A valid email is required to book.");
             }
-            if (clientIp != null && !clientIp.isBlank()) {
-                rateLimiter.check("booking:" + clientIp, MAX_GUEST_BOOKINGS, GUEST_BOOKING_WINDOW_MS,
-                        "Too many booking attempts. Please try again later.");
-            }
+        }
+
+        // Booking-abuse limits apply to BOTH paths (authenticated bookings used to bypass this).
+        // Separate buckets: one per client IP, one per user account.
+        if (clientIp != null && !clientIp.isBlank()) {
+            rateLimiter.check("booking:ip:" + clientIp, MAX_BOOKINGS_PER_IP, BOOKING_WINDOW_MS,
+                    "Too many booking attempts. Please try again later.");
+        }
+        if (user != null) {
+            rateLimiter.check("booking:user:" + user.getId(), MAX_BOOKINGS_PER_USER, BOOKING_WINDOW_MS,
+                    "Too many booking attempts. Please try again later.");
         }
 
         // phone / instagram / notes are accepted for both guest and authenticated
@@ -122,7 +138,26 @@ public class BookingService {
                     "Slots must be booked at least one day in advance.");
         }
 
+        // The chosen service + add-ons must fit inside the slot's own length. The client mirrors this
+        // (slotCanFit) but the server is authoritative — a caller can't book a 120-min combo into a
+        // 60-min slot by talking to the API directly.
+        if (slot.getEndTime() == null
+                || quote.durationMin() > Duration.between(slot.getStartTime(), slot.getEndTime()).toMinutes()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "The selected services need more time than this slot allows.");
+        }
+
         if (user != null) {
+            // Lock the user's row so their concurrent bookings serialize; then enforce the cap on
+            // upcoming held seats. Without the lock, two parallel requests could both pass a count
+            // check and exceed the cap (count-then-insert race).
+            userRepository.findByIdForUpdate(user.getId());
+            long upcoming = bookingRepository.countActiveFutureBookingsForUser(
+                    user.getId(), BookingWindow.currentBusinessWallClockUtc());
+            if (upcoming >= maxActiveBookingsPerUser) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "You already have the maximum number of upcoming bookings.");
+            }
             if (bookingRepository.existsActiveBookingForUserAndSlot(slot.getId(), user.getId())) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "You already have an active booking for this slot.");
             }
@@ -244,10 +279,11 @@ public class BookingService {
     }
 
     private record BookingQuote(String serviceName, String nailArt,
-                                String removal, int totalPrice) {
+                                String removal, int totalPrice, int durationMin) {
     }
 
-    // Resolve canonical names + price from the server catalog, rejecting unknown selections.
+    // Resolve canonical names + price + total duration from the server catalog, rejecting unknown
+    // selections. Duration is the authoritative sum used to check the booking fits its slot.
     private BookingQuote priceFromCatalog(CreateBookingRequest request) {
         BookingCatalog.Service service = BookingCatalog.service(request.serviceId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -260,16 +296,22 @@ public class BookingService {
                         "Unknown removal selection."));
 
         int total = service.price() + nailArt.price() + removal.price();
-        return new BookingQuote(service.name(), nailArt.name(), removal.name(), total);
+        int duration = service.durationMin() + nailArt.durationMin() + removal.durationMin();
+        return new BookingQuote(service.name(), nailArt.name(), removal.name(), total, duration);
     }
 
     @Transactional
     public BookingResponse cancelBooking(Long bookingId, String email) {
         UserEntity user = loadUserOrThrow(email);
 
-        BookingEntity booking = bookingRepository.findActiveBookingByIdAndUserId(bookingId, user.getId())
+        // 404 for a missing or non-owned booking (don't reveal another user's booking); 409 if it
+        // exists but is no longer BOOKED (already cancelled/completed).
+        BookingEntity booking = bookingRepository.findByIdAndUserIdAndArchivedAtIsNull(bookingId, user.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Active booking not found."));
+        if (!"BOOKED".equals(booking.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This booking can no longer be cancelled.");
+        }
 
         SlotEntity slot = loadSlotOrThrow(booking.getSlotId());
 
@@ -282,8 +324,11 @@ public class BookingService {
                     "Bookings can only be cancelled at least 72 hours before the appointment.");
         }
 
-        booking.setStatus("CANCELLED");
-        bookingRepository.save(booking);
+        // Atomic guarded transition: only one of a racing cancel/complete can flip BOOKED.
+        if (bookingRepository.transitionFromBookedForUser(bookingId, user.getId(), "CANCELLED") == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This booking can no longer be cancelled.");
+        }
+        booking.setStatus("CANCELLED"); // reflect the committed change in the response DTO
 
         slot.setBookedCount(Math.max(0, slot.getBookedCount() - 1));
         releaseSeatOrConflict(slot);
@@ -344,12 +389,19 @@ public class BookingService {
 
     @Transactional
     public BookingResponse adminCancelBooking(Long bookingId) {
-        BookingEntity booking = bookingRepository.findByIdAndStatusAndArchivedAtIsNull(bookingId, "BOOKED")
+        // 404 for no such visible booking; 409 if it exists but is no longer BOOKED.
+        BookingEntity booking = bookingRepository.findByIdAndArchivedAtIsNull(bookingId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Active booking not found."));
+        if (!"BOOKED".equals(booking.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This booking is no longer active.");
+        }
 
+        // Atomic guarded transition so a cancel can't race a complete (or another cancel).
+        if (bookingRepository.transitionFromBooked(bookingId, "CANCELLED") == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This booking is no longer active.");
+        }
         booking.setStatus("CANCELLED");
-        bookingRepository.save(booking);
 
         SlotEntity slot = loadSlotOrThrow(booking.getSlotId());
         slot.setBookedCount(Math.max(0, slot.getBookedCount() - 1));
@@ -363,14 +415,29 @@ public class BookingService {
 
     @Transactional
     public BookingResponse adminCompleteBooking(Long bookingId) {
-        BookingEntity booking = bookingRepository.findByIdAndStatusAndArchivedAtIsNull(bookingId, "BOOKED")
+        // 404 for no such visible booking; 409 if it exists but is no longer BOOKED.
+        BookingEntity booking = bookingRepository.findByIdAndArchivedAtIsNull(bookingId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Active booking not found."));
-
-        booking.setStatus("COMPLETED");
-        bookingRepository.save(booking);
+        if (!"BOOKED".equals(booking.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This booking is no longer active.");
+        }
 
         SlotEntity slot = loadSlotOrThrow(booking.getSlotId());
+        // Can't complete an appointment that hasn't ended yet. Completion fires the review email
+        // and can free the slot for rebooking, so gate it on the slot end having passed in the
+        // salon's wall-clock (stored as UTC) — never Instant.now(), which would be 8h behind SGT.
+        if (slot.getEndTime() == null
+                || slot.getEndTime().isAfter(BookingWindow.currentBusinessWallClockUtc())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "This appointment can only be completed after it has ended.");
+        }
+
+        if (bookingRepository.transitionFromBooked(bookingId, "COMPLETED") == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This booking is no longer active.");
+        }
+        booking.setStatus("COMPLETED");
+
         UserEntity user = booking.getUserId() != null
                 ? userRepository.findById(booking.getUserId()).orElse(null)
                 : null;

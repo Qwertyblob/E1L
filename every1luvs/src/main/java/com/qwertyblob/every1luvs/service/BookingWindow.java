@@ -34,6 +34,15 @@ public final class BookingWindow {
     }
 
     /**
+     * The salon's current wall-clock, expressed in the stored wall-clock-as-UTC convention so it
+     * compares directly against slot start/end times. Use this — never {@link Instant#now()} —
+     * for "has this slot happened yet?" checks; a raw UTC now would be 8 hours behind SGT.
+     */
+    public static Instant currentBusinessWallClockUtc() {
+        return LocalDateTime.now(BUSINESS_ZONE).toInstant(ZoneOffset.UTC);
+    }
+
+    /**
      * Earliest slot start a customer may still cancel: the salon's current wall-clock
      * plus {@link #CANCELLATION_NOTICE}, expressed in the stored wall-clock-as-UTC
      * convention so it compares directly against slot start times.

@@ -46,7 +46,7 @@ class BookingServiceTest {
     // ─── createBooking ────────────────────────────────────────────────────────────
 
     // A valid catalog selection (classic / no add-ons) for tests exercising
-    // flow beyond the catalog price check. classic = 58.
+    // flow beyond the catalog price check. classic = 58, 45 min.
     private static CreateBookingRequest authBooking(Long slotId) {
         return new CreateBookingRequest(slotId, null, null, null, null, null,
                 null, null, null, null, null,
@@ -67,6 +67,7 @@ class BookingServiceTest {
             return b;
         });
         // Client sends a forged cheap price + fake names; the server must ignore them.
+        // classic 45 + tier2 45 + self-gel 30 = 120 min, fits the 240-min test slot.
         CreateBookingRequest request = new CreateBookingRequest(1L, null, null, null, null, null,
                 "FREE STUFF", "CEO", "diamonds", "premium", 1,
                 "classic", "junior", "tier2", "self-gel");
@@ -111,6 +112,43 @@ class BookingServiceTest {
         assertThat(response.status()).isEqualTo("BOOKED");
         assertThat(slot.getBookedCount()).isEqualTo(2);
         verify(slotRepository).saveAndFlush(slot);
+    }
+
+    @Test
+    void createBooking_serviceLongerThanSlot_throws400() {
+        // 30-minute slot, but "structured" is a 60-minute service — must not fit.
+        SlotEntity shortSlot = slot(3, 0);
+        shortSlot.setEndTime(Instant.parse("2099-06-15T09:30:00Z")); // 09:00–09:30 = 30 min
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(shortSlot));
+
+        var ex = catchThrowableOfType(
+                () -> bookingService.createBooking(
+                        new CreateBookingRequest(1L, "Guest Gina", "gina@example.com", null, null, null,
+                                null, null, null, null, null,
+                                "structured", "junior", "none", "none"), null),
+                ResponseStatusException.class);
+
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getReason()).contains("more time than this slot");
+        verify(slotRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void createBooking_atActiveBookingCap_throws409() {
+        SlotEntity slot = slot(3, 0);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        // Already holding the max upcoming bookings (default cap 5).
+        when(bookingRepository.countActiveFutureBookingsForUser(eq(1L), any())).thenReturn(5L);
+
+        var ex = catchThrowableOfType(
+                () -> bookingService.createBooking(authBooking(1L), "alice@example.com"),
+                ResponseStatusException.class);
+
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getReason()).contains("maximum number of upcoming bookings");
+        verify(userRepository).findByIdForUpdate(1L); // row lock taken before the count
+        verify(bookingRepository, never()).save(any());
     }
 
     @Test
@@ -273,7 +311,7 @@ class BookingServiceTest {
     @Test
     void createBooking_guestRateLimited_throws429() {
         doThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Too many"))
-                .when(rateLimiter).check(eq("booking:203.0.113.9"), anyInt(), anyLong(), anyString());
+                .when(rateLimiter).check(eq("booking:ip:203.0.113.9"), anyInt(), anyLong(), anyString());
 
         var ex = catchThrowableOfType(
                 () -> bookingService.createBooking(
@@ -281,6 +319,21 @@ class BookingServiceTest {
                                 null, null, null, null, null,
                                 "classic", "junior", "none", "none"),
                         null, "203.0.113.9"),
+                ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    @Test
+    void createBooking_authenticatedRateLimited_throws429() {
+        // The authenticated path is now also limited (per-user bucket).
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        // lenient: the authenticated path also calls check() for the IP bucket (different args),
+        // which strict stubbing would otherwise flag as a potential stubbing problem.
+        lenient().doThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Too many"))
+                .when(rateLimiter).check(eq("booking:user:1"), anyInt(), anyLong(), anyString());
+
+        var ex = catchThrowableOfType(
+                () -> bookingService.createBooking(authBooking(1L), "alice@example.com", "203.0.113.9"),
                 ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
     }
@@ -308,26 +361,25 @@ class BookingServiceTest {
     // ─── cancelBooking ────────────────────────────────────────────────────────────
 
     @Test
-    void cancelBooking_happyPath_decrementsBookedCountAndSaves() {
+    void cancelBooking_happyPath_decrementsBookedCountAndTransitions() {
         SlotEntity slot = slot(3, 2);
         BookingEntity booking = booking("BOOKED");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
-        when(bookingRepository.findActiveBookingByIdAndUserId(10L, 1L)).thenReturn(Optional.of(booking));
+        when(bookingRepository.findByIdAndUserIdAndArchivedAtIsNull(10L, 1L)).thenReturn(Optional.of(booking));
         when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
-        when(bookingRepository.save(booking)).thenReturn(booking);
+        when(bookingRepository.transitionFromBookedForUser(10L, 1L, "CANCELLED")).thenReturn(1);
 
         BookingResponse response = bookingService.cancelBooking(10L, "alice@example.com");
 
         assertThat(response.status()).isEqualTo("CANCELLED");
         assertThat(slot.getBookedCount()).isEqualTo(1);
-        // saveAndFlush forces the version-checked UPDATE so a concurrent cancel surfaces as 409.
         verify(slotRepository).saveAndFlush(slot);
     }
 
     @Test
     void cancelBooking_bookingNotFound_throws404() {
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
-        when(bookingRepository.findActiveBookingByIdAndUserId(99L, 1L)).thenReturn(Optional.empty());
+        when(bookingRepository.findByIdAndUserIdAndArchivedAtIsNull(99L, 1L)).thenReturn(Optional.empty());
 
         var ex = catchThrowableOfType(
                 () -> bookingService.cancelBooking(99L, "alice@example.com"),
@@ -336,13 +388,26 @@ class BookingServiceTest {
     }
 
     @Test
+    void cancelBooking_alreadyCancelled_throws409() {
+        BookingEntity booking = booking("CANCELLED");
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        when(bookingRepository.findByIdAndUserIdAndArchivedAtIsNull(10L, 1L)).thenReturn(Optional.of(booking));
+
+        var ex = catchThrowableOfType(
+                () -> bookingService.cancelBooking(10L, "alice@example.com"),
+                ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        verify(bookingRepository, never()).transitionFromBookedForUser(anyLong(), anyLong(), anyString());
+    }
+
+    @Test
     void cancelBooking_bookedCountNeverGoesNegative() {
         SlotEntity slot = slot(3, 0); // bookedCount already 0 (defensive floor)
         BookingEntity booking = booking("BOOKED");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
-        when(bookingRepository.findActiveBookingByIdAndUserId(10L, 1L)).thenReturn(Optional.of(booking));
+        when(bookingRepository.findByIdAndUserIdAndArchivedAtIsNull(10L, 1L)).thenReturn(Optional.of(booking));
         when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
-        when(bookingRepository.save(booking)).thenReturn(booking);
+        when(bookingRepository.transitionFromBookedForUser(10L, 1L, "CANCELLED")).thenReturn(1);
 
         bookingService.cancelBooking(10L, "alice@example.com");
 
@@ -356,7 +421,7 @@ class BookingServiceTest {
         slot.setStartTime(LocalDateTime.now(BookingWindow.BUSINESS_ZONE).plusHours(24).toInstant(ZoneOffset.UTC));
         BookingEntity booking = booking("BOOKED");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
-        when(bookingRepository.findActiveBookingByIdAndUserId(10L, 1L)).thenReturn(Optional.of(booking));
+        when(bookingRepository.findByIdAndUserIdAndArchivedAtIsNull(10L, 1L)).thenReturn(Optional.of(booking));
         when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
 
         var ex = catchThrowableOfType(
@@ -366,7 +431,7 @@ class BookingServiceTest {
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(booking.getStatus()).isEqualTo("BOOKED");
         assertThat(slot.getBookedCount()).isEqualTo(2);
-        verify(bookingRepository, never()).save(any());
+        verify(bookingRepository, never()).transitionFromBookedForUser(anyLong(), anyLong(), anyString());
         verify(slotRepository, never()).saveAndFlush(any());
     }
 
@@ -377,9 +442,9 @@ class BookingServiceTest {
         slot.setStartTime(LocalDateTime.now(BookingWindow.BUSINESS_ZONE).plusHours(73).toInstant(ZoneOffset.UTC));
         BookingEntity booking = booking("BOOKED");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
-        when(bookingRepository.findActiveBookingByIdAndUserId(10L, 1L)).thenReturn(Optional.of(booking));
+        when(bookingRepository.findByIdAndUserIdAndArchivedAtIsNull(10L, 1L)).thenReturn(Optional.of(booking));
         when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
-        when(bookingRepository.save(booking)).thenReturn(booking);
+        when(bookingRepository.transitionFromBookedForUser(10L, 1L, "CANCELLED")).thenReturn(1);
 
         BookingResponse response = bookingService.cancelBooking(10L, "alice@example.com");
 
@@ -427,9 +492,9 @@ class BookingServiceTest {
     void adminCancelBooking_happyPath_cancelsAndDecrementsCount() {
         SlotEntity slot = slot(3, 2);
         BookingEntity booking = booking("BOOKED");
-        when(bookingRepository.findByIdAndStatusAndArchivedAtIsNull(10L, "BOOKED")).thenReturn(Optional.of(booking));
+        when(bookingRepository.findByIdAndArchivedAtIsNull(10L)).thenReturn(Optional.of(booking));
+        when(bookingRepository.transitionFromBooked(10L, "CANCELLED")).thenReturn(1);
         when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
-        when(bookingRepository.save(booking)).thenReturn(booking);
         when(userRepository.findById(1L)).thenReturn(Optional.of(user()));
 
         BookingResponse response = bookingService.adminCancelBooking(10L);
@@ -440,9 +505,66 @@ class BookingServiceTest {
 
     @Test
     void adminCancelBooking_notFound_throws404() {
-        when(bookingRepository.findByIdAndStatusAndArchivedAtIsNull(99L, "BOOKED")).thenReturn(Optional.empty());
+        when(bookingRepository.findByIdAndArchivedAtIsNull(99L)).thenReturn(Optional.empty());
         var ex = catchThrowableOfType(() -> bookingService.adminCancelBooking(99L), ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void adminCancelBooking_alreadyCompleted_throws409() {
+        when(bookingRepository.findByIdAndArchivedAtIsNull(10L)).thenReturn(Optional.of(booking("COMPLETED")));
+        var ex = catchThrowableOfType(() -> bookingService.adminCancelBooking(10L), ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        verify(bookingRepository, never()).transitionFromBooked(anyLong(), anyString());
+    }
+
+    // ─── adminCompleteBooking ─────────────────────────────────────────────────────
+
+    @Test
+    void adminCompleteBooking_afterAppointmentEnded_completes() {
+        BookingEntity booking = booking("BOOKED");
+        SlotEntity slot = slot(3, 1);
+        // Appointment ended an hour ago (salon wall-clock).
+        slot.setStartTime(LocalDateTime.now(BookingWindow.BUSINESS_ZONE).minusHours(2).toInstant(ZoneOffset.UTC));
+        slot.setEndTime(LocalDateTime.now(BookingWindow.BUSINESS_ZONE).minusHours(1).toInstant(ZoneOffset.UTC));
+        when(bookingRepository.findByIdAndArchivedAtIsNull(10L)).thenReturn(Optional.of(booking));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(bookingRepository.transitionFromBooked(10L, "COMPLETED")).thenReturn(1);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user()));
+
+        BookingResponse response = bookingService.adminCompleteBooking(10L);
+
+        assertThat(response.status()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void adminCompleteBooking_beforeAppointmentEnds_throws400() {
+        BookingEntity booking = booking("BOOKED");
+        SlotEntity slot = slot(3, 1);
+        // Appointment ends two hours from now — can't be completed yet.
+        slot.setStartTime(LocalDateTime.now(BookingWindow.BUSINESS_ZONE).plusHours(1).toInstant(ZoneOffset.UTC));
+        slot.setEndTime(LocalDateTime.now(BookingWindow.BUSINESS_ZONE).plusHours(2).toInstant(ZoneOffset.UTC));
+        when(bookingRepository.findByIdAndArchivedAtIsNull(10L)).thenReturn(Optional.of(booking));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+
+        var ex = catchThrowableOfType(() -> bookingService.adminCompleteBooking(10L), ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getReason()).contains("after it has ended");
+        verify(bookingRepository, never()).transitionFromBooked(anyLong(), anyString());
+    }
+
+    @Test
+    void adminCompleteBooking_notFound_throws404() {
+        when(bookingRepository.findByIdAndArchivedAtIsNull(99L)).thenReturn(Optional.empty());
+        var ex = catchThrowableOfType(() -> bookingService.adminCompleteBooking(99L), ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void adminCompleteBooking_alreadyCancelled_throws409() {
+        when(bookingRepository.findByIdAndArchivedAtIsNull(10L)).thenReturn(Optional.of(booking("CANCELLED")));
+        var ex = catchThrowableOfType(() -> bookingService.adminCompleteBooking(10L), ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
 
     // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -456,12 +578,15 @@ class BookingServiceTest {
         return u;
     }
 
+    // A generous 4-hour future slot so the duration-fit check never rejects the catalog
+    // combinations these tests use (max combo is 90+60+30 = 180 min). Tests that exercise the
+    // duration guard or completion timing override start/end explicitly.
     private SlotEntity slot(int capacity, int bookedCount) {
         SlotEntity s = new SlotEntity();
         s.setId(1L);
         s.setTitle("Morning session");
         s.setStartTime(Instant.parse("2099-06-15T09:00:00Z"));
-        s.setEndTime(Instant.parse("2099-06-15T10:00:00Z"));
+        s.setEndTime(Instant.parse("2099-06-15T13:00:00Z"));
         s.setCapacity(capacity);
         s.setBookedCount(bookedCount);
         return s;

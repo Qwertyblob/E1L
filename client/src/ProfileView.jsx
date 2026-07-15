@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import logoBlack from './assets/images/E1LN_Logo/E1LN_Black_Long_Logo.png';
 import {
+  appointmentEnded,
   computePreviewSlots,
   getCalendarDays,
   getTimeSlotsForDay,
@@ -385,7 +386,13 @@ function ScheduleBookingsPanel({
             </strong>
             {booking.status === 'BOOKED' && (
               <div className="schedule-row-actions">
-                <button className="text-button" onClick={(e) => { e.stopPropagation(); handleAdminCompleteBooking(booking.id); }} type="button">
+                <button
+                  className="text-button"
+                  onClick={(e) => { e.stopPropagation(); handleAdminCompleteBooking(booking.id); }}
+                  type="button"
+                  disabled={!appointmentEnded(booking)}
+                  title={appointmentEnded(booking) ? undefined : 'Can only complete after the appointment has ended'}
+                >
                   Complete
                 </button>
                 <button className="text-button" onClick={(e) => { e.stopPropagation(); handleAdminCancelBooking(booking.id); }} type="button">

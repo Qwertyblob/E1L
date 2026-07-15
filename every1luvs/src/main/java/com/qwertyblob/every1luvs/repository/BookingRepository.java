@@ -37,6 +37,36 @@ public interface BookingRepository extends JpaRepository<BookingEntity, Long> {
     // must not be able to reach them by ID either.
     Optional<BookingEntity> findByIdAndStatusAndArchivedAtIsNull(Long id, String status);
 
+    // Lookups used to distinguish 404 (no such visible booking / not owned) from 409 (visible but
+    // no longer BOOKED) after an atomic guarded status transition changes zero rows.
+    Optional<BookingEntity> findByIdAndArchivedAtIsNull(Long id);
+
+    Optional<BookingEntity> findByIdAndUserIdAndArchivedAtIsNull(Long id, Long userId);
+
+    // Count a user's still-upcoming held seats (future BOOKED, non-archived). Past BOOKED rows are
+    // excluded so a client is never permanently blocked by an old appointment left un-completed.
+    @Query("SELECT COUNT(b) FROM BookingEntity b, SlotEntity s WHERE b.slotId = s.id "
+            + "AND b.userId = :userId AND b.status = 'BOOKED' AND b.archivedAt IS NULL "
+            + "AND s.startTime > :now")
+    long countActiveFutureBookingsForUser(@Param("userId") Long userId, @Param("now") Instant now);
+
+    // Atomic guarded status transition (admin): flips a BOOKED booking to :newStatus and reports how
+    // many rows changed (1 = success, 0 = it was concurrently changed away from BOOKED). Replaces
+    // read-then-save so a cancel/complete race can't both "win". clearAutomatically keeps the
+    // persistence context from serving a stale copy afterwards.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE BookingEntity b SET b.status = :newStatus "
+            + "WHERE b.id = :id AND b.status = 'BOOKED' AND b.archivedAt IS NULL")
+    int transitionFromBooked(@Param("id") Long id, @Param("newStatus") String newStatus);
+
+    // Atomic guarded status transition (customer): as above but scoped to the owning user so a
+    // customer can only transition their own booking.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE BookingEntity b SET b.status = :newStatus "
+            + "WHERE b.id = :id AND b.userId = :userId AND b.status = 'BOOKED' AND b.archivedAt IS NULL")
+    int transitionFromBookedForUser(@Param("id") Long id, @Param("userId") Long userId,
+                                    @Param("newStatus") String newStatus);
+
     // A slot can't be deleted while a non-cancelled (active or completed) booking still
     // points at it; cancelled bookings are terminal and get cleaned up with the slot.
     // Archived bookings don't count — they're invisible in the UI, and letting them
