@@ -43,8 +43,10 @@ services:
     # .env (which also holds the Cloudflare tunnel token, the log-monitor PAT, and R2 backup creds
     # this process never needs). Compose still reads .env for the ${...} interpolation below.
     #   ${VAR:?...}  → required; compose fails fast if unset.
-    #   ${VAR:-def}  → optional; falls back to the app default when unset OR blank, so a blank line
-    #                  in .env can never silently override a real default (e.g. REVIEW_URL).
+    #   ${VAR:-def}  → optional; default when unset OR blank, so a stray blank line can't override it.
+    #   ${VAR-def}   → optional WITH a meaningful blank; default only when UNSET, so an explicit blank
+    #                  passes through. Used for REVIEW_URL/BOOKING_URL, where a blank intentionally
+    #                  disables the feature (see .env.example / application.properties "Blank = dormant").
     # Bootstrap-admin vars are intentionally NOT injected here — run a one-time override for first
     # boot (see the bootstrap note in .env.example) so they aren't permanently present.
     environment:
@@ -69,8 +71,8 @@ services:
       MAIL_PASSWORD: ${MAIL_PASSWORD:?MAIL_PASSWORD is required}
       # Blank → the app falls back to APP_MAIL_FROM (see BookingMailService).
       ADMIN_NOTIFICATION_EMAIL: ${ADMIN_NOTIFICATION_EMAIL:-}
-      REVIEW_URL: ${REVIEW_URL:-https://instagram.com/every1luvsnails}
-      BOOKING_URL: ${BOOKING_URL:-https://every1luvs.com/#services}
+      REVIEW_URL: ${REVIEW_URL-https://instagram.com/every1luvsnails}
+      BOOKING_URL: ${BOOKING_URL-https://every1luvs.com/#services}
     depends_on:
       db:
         condition: service_healthy
