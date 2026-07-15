@@ -1,6 +1,8 @@
 # Continuous deployment: build the app + web images, push to GHCR, then SSH to the VPS
 # and roll the stack onto the new images. Runs only after the CI workflow succeeds on main,
-# so tests gate every deploy. Manual re-deploy is available via the "Run workflow" button.
+# so tests gate every deploy. Manual re-deploy is available via the "Run workflow" button
+# (restricted to main). The whole pipeline is pinned to ONE immutable commit (DEPLOY_SHA)
+# so a workflow_run can never build/deploy a commit other than the exact one CI passed.
 name: Deploy
 
 on:
@@ -8,7 +10,12 @@ on:
     workflows: ["CI"]          # the name: of ci.yml
     types: [completed]
     branches: [main]
-  workflow_dispatch: {}        # allow a manual deploy from the Actions tab
+  workflow_dispatch:           # allow a manual deploy from the Actions tab (main only; see the job `if`)
+    inputs:
+      dry_run:
+        description: "Validate only: resolve DEPLOY_SHA and build images WITHOUT pushing or SSH-deploying"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-prod           # never run two deploys at once
@@ -18,17 +25,44 @@ env:
   REGISTRY: ghcr.io
   APP_IMAGE: ghcr.io/qwertyblob/e1l-app
   WEB_IMAGE: ghcr.io/qwertyblob/e1l-web
+  # The single immutable commit this whole pipeline builds and deploys.
+  # For workflow_run, github.sha is the tip of the default branch (which may have advanced past
+  # the commit CI actually tested) — so we MUST use the triggering run's head_sha instead.
+  # For workflow_dispatch, github.sha is the selected ref's commit, which is what we want.
+  DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  # true only for a manual dispatch with the dry_run box ticked; builds without pushing and skips
+  # the SSH deploy, so the pipeline (SHA resolution, off-main rejection, build) can be exercised
+  # on main without touching production.
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
 
 jobs:
   build-and-push:
-    # workflow_run fires even on CI failure; gate on success. (Always run for manual dispatch.)
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # Deploy ONLY when the triggering CI run was a successful push to THIS repo's main
+    # (not a fork PR, not a non-main branch, not a failed/cancelled run). Manual dispatch is
+    # allowed only from main. Anything else is skipped.
+    if: >-
+      ${{
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.event == 'push' &&
+         github.event.workflow_run.head_branch == 'main' &&
+         github.event.workflow_run.head_repository.full_name == github.repository &&
+         github.event.workflow_run.conclusion == 'success')
+      }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write          # push to GHCR with the built-in GITHUB_TOKEN
     steps:
+      - name: Resolve deploy target
+        run: |
+          echo "event=${{ github.event_name }} ref=${{ github.ref }}"
+          echo "DEPLOY_SHA=${{ env.DEPLOY_SHA }}"
+          echo "DRY_RUN=${{ env.DRY_RUN }}"
+
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}   # build the exact commit CI passed, not the branch tip
 
       - uses: docker/setup-buildx-action@v3
 
@@ -44,10 +78,10 @@ jobs:
         with:
           context: .                       # repo root (Maven build needs client/src/services.json)
           file: every1luvs/Dockerfile
-          push: true
+          push: ${{ env.DRY_RUN != 'true' }}   # dry run builds to validate but never publishes
           tags: |
             ${{ env.APP_IMAGE }}:latest
-            ${{ env.APP_IMAGE }}:${{ github.sha }}
+            ${{ env.APP_IMAGE }}:${{ env.DEPLOY_SHA }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -56,34 +90,46 @@ jobs:
         with:
           context: .
           file: web/Dockerfile
-          push: true
+          push: ${{ env.DRY_RUN != 'true' }}   # dry run builds to validate but never publishes
           tags: |
             ${{ env.WEB_IMAGE }}:latest
-            ${{ env.WEB_IMAGE }}:${{ github.sha }}
+            ${{ env.WEB_IMAGE }}:${{ env.DEPLOY_SHA }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   deploy:
     needs: build-and-push
+    # Never SSH to prod on a dry run (build-and-push still runs to validate the build).
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
     runs-on: ubuntu-latest
+    # Gate production behind a GitHub Environment. NOTE: a required reviewer / branch policy
+    # must be configured in repo Settings → Environments → production; the YAML reference alone
+    # does not enforce approval.
+    environment: production
     steps:
       - name: Roll the stack over SSH
         uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT }}      # leave the secret unset to default to 22
-          script_stop: true                     # abort on the first failing command
+          envs: DEPLOY_SHA                       # forward DEPLOY_SHA into the remote shell
+          script_stop: true                      # abort on the first failing command
           script: |
             set -euo pipefail
             cd ~/E1L
             # Authenticate to GHCR so the (private) images can be pulled.
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USER }}" --password-stdin
-            # Pull compose changes (image tags, healthchecks) but keep the local .env.
-            git pull --ff-only
+            # Check out the EXACT deployed commit (detached) rather than `git pull`-ing the branch,
+            # so the server's compose/config can never drift past the tested commit. The untracked
+            # local .env is left in place.
+            git fetch --prune origin main
+            git checkout --detach --force "$DEPLOY_SHA"
             # Pin this deploy to the exact commit's images, then roll the two app services.
-            export E1L_IMAGE_TAG="${{ github.sha }}"
+            export E1L_IMAGE_TAG="$DEPLOY_SHA"
             docker compose pull app web
             docker compose up -d
             docker image prune -f
