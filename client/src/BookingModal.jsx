@@ -68,7 +68,9 @@ function slotDurationMin(slot) {
   const start = new Date(slot.startTime).getTime();
   const end = new Date(slot.endTime).getTime();
   if (Number.isNaN(start) || Number.isNaN(end)) return 0;
-  return Math.round((end - start) / 60000);
+  // Floor (not round) to match the server, which measures fit with Duration.toMinutes() (truncates).
+  // A 59m31s slot must read as 59 here too, so a slot shown as fitting is never rejected server-side.
+  return Math.floor((end - start) / 60000);
 }
 
 // Whether a slot is long enough for the chosen service + add-ons. The single predicate used by

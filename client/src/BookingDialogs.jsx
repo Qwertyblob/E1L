@@ -1,3 +1,5 @@
+import { appointmentEnded } from './slotBuilderUtils';
+
 export function CancelBookingDialog({ confirmCancelId, cancelDialogRef, isCancelling, onKeep, onConfirm }) {
   if (confirmCancelId == null) return null;
 
@@ -47,7 +49,13 @@ export function BookingDetailModal({ bookingDetail, bookingDetailRef, statusClas
         </dl>
         {bookingDetail.status === 'BOOKED' && (
           <div className="detail-actions">
-            <button className="bk-btn bk-btn--ghost" onClick={() => onComplete(bookingDetail.id)} type="button">
+            <button
+              className="bk-btn bk-btn--ghost"
+              onClick={() => onComplete(bookingDetail.id)}
+              type="button"
+              disabled={!appointmentEnded(bookingDetail)}
+              title={appointmentEnded(bookingDetail) ? undefined : 'Can only complete after the appointment has ended'}
+            >
               Mark completed
             </button>
             <button className="bk-btn bk-btn--primary" onClick={() => onCancel(bookingDetail.id)} type="button">

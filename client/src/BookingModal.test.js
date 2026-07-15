@@ -228,3 +228,43 @@ describe('BookingModal — slots fetch failure is non-fatal', () => {
     expect(day15).toBeDisabled();
   });
 });
+
+describe('BookingModal — duration fit (B1)', () => {
+  // Classic Manicure with no add-ons needs 45 min. A 30-min slot cannot hold it.
+  test('a slot shorter than the estimated duration is hidden from the time list', async () => {
+    mockSlots([
+      { id: 301, startTime: `${DATE_STR}T10:00:00Z`, endTime: `${DATE_STR}T10:30:00Z`, available: true }, // 30 min — too short
+      { id: 302, startTime: `${DATE_STR}T11:00:00Z`, endTime: `${DATE_STR}T15:00:00Z`, available: true }, // 4h — fits
+    ]);
+    renderModal();
+    await toAddonsStep(); // Classic Manicure = 45 min
+    await clickContinue(); // step 2 — date & time
+    await userEvent.click(await screen.findByRole('button', { name: '15' }));
+
+    expect(screen.getByRole('button', { name: '11:00' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '10:00' })).not.toBeInTheDocument();
+  });
+
+  // Two slots share a start time; only the longer one fits. The picker shows one 10:00 button,
+  // and resolveSlotId must submit the fitting slot (302), never the too-short one (301).
+  test('when two slots share a start time, the fitting one is submitted', async () => {
+    mockSlots([
+      { id: 301, startTime: `${DATE_STR}T10:00:00Z`, endTime: `${DATE_STR}T10:30:00Z`, available: true }, // 30 min — too short
+      { id: 302, startTime: `${DATE_STR}T10:00:00Z`, endTime: `${DATE_STR}T14:00:00Z`, available: true }, // 4h — fits
+    ]);
+    const { onConfirm } = renderModal();
+    await toAddonsStep(); // Classic Manicure = 45 min
+    await clickContinue(); // step 2 — date & time
+    await userEvent.click(await screen.findByRole('button', { name: '15' }));
+    await userEvent.click(screen.getByRole('button', { name: '10:00' }));
+    await clickContinue(); // step 3 — details
+    await userEvent.type(screen.getByLabelText(/Full Name/), 'Alice');
+    await userEvent.type(screen.getByLabelText(/Email/), 'alice@example.com');
+    await clickContinue(); // step 4 — T&C
+    await userEvent.click(screen.getByRole('checkbox'));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+    expect(onConfirm.mock.calls[0][0].slotId).toBe(302);
+  });
+});

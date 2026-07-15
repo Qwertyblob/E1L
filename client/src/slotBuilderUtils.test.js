@@ -1,4 +1,5 @@
 import {
+  appointmentEnded,
   computePreviewSlots,
   getCalendarDays,
   getSelectedDates,
@@ -314,5 +315,32 @@ describe('getCalendarDays', () => {
     const real = days.filter(d => d.date !== null);
     expect(real).toHaveLength(29);
     expect(real[28].date).toBe('2024-02-29');
+  });
+});
+
+// ─── appointmentEnded (wall-clock completion gate) ────────────────────────────
+
+describe('appointmentEnded', () => {
+  test('true for a slot that ended in the past', () => {
+    expect(appointmentEnded({ slotEndTime: '2020-01-01T10:00:00Z' })).toBe(true);
+  });
+
+  test('false for a slot far in the future', () => {
+    expect(appointmentEnded({ slotEndTime: '2999-01-01T10:00:00Z' })).toBe(false);
+  });
+
+  test('false when slotEndTime is missing or unparseable', () => {
+    expect(appointmentEnded(null)).toBe(false);
+    expect(appointmentEnded({})).toBe(false);
+    expect(appointmentEnded({ slotEndTime: 'not-a-date' })).toBe(false);
+  });
+
+  // Slot times are Singapore wall-clock labelled UTC, so "now" in that convention is real UTC
+  // now + 8h. A slot whose UTC end is only 4h ahead of real now is therefore already past.
+  test('treats the +8h Singapore skew as elapsed', () => {
+    const endsIn4h = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+    const endsIn12h = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+    expect(appointmentEnded({ slotEndTime: endsIn4h })).toBe(true);
+    expect(appointmentEnded({ slotEndTime: endsIn12h })).toBe(false);
   });
 });
