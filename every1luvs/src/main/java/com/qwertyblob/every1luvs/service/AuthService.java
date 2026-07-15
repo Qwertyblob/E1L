@@ -55,12 +55,6 @@ public class AuthService {
     private final OtpDeliveryService otpDeliveryService;
     private final RateLimiterService rateLimiter;
 
-    // A throwaway hash in the encoder's own format/cost, matched against on the verify-account
-    // failure branches that never reach the real OTP compare (no such user / already verified),
-    // so all failures spend one BCrypt compare and can't be told apart by timing. Computed once
-    // at startup rather than hardcoded so it always matches whatever PasswordEncoder is wired in.
-    private final String dummyOtpHash;
-
     public AuthService(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
@@ -75,7 +69,6 @@ public class AuthService {
         this.otpService = otpService;
         this.otpDeliveryService = otpDeliveryService;
         this.rateLimiter = rateLimiter;
-        this.dummyOtpHash = passwordEncoder.encode("000000");
     }
 
     public MessageResponse register(RegisterRequest request) {
@@ -182,19 +175,14 @@ public class AuthService {
 
         UserEntity user = userRepository.findByEmail(email).orElse(null);
 
-        // Every failure (no such account, already verified, wrong/expired code) returns the same
-        // status and body so verify-account can't be used to probe which emails exist or are
-        // unverified. The only branch that runs the real OTP compare is a genuine unverified
-        // account; the other two would skip BCrypt and finish measurably faster, so they run a
-        // throwaway compare against dummyOtpHash to equalize timing (Java && short-circuits, so
-        // the real compare below never runs when the account is missing or already verified).
-        boolean verified = user != null
-                && !Boolean.TRUE.equals(user.getVerifiedAccount())
-                && otpService.isValidVerificationOtp(user, otp);
-        if (!verified) {
-            if (user == null || Boolean.TRUE.equals(user.getVerifiedAccount())) {
-                passwordEncoder.matches(otp, dummyOtpHash);
-            }
+        // Every failure (no such account, already verified, wrong/expired/malformed code) returns
+        // the same status and body so verify-account can't be used to probe which emails exist or
+        // are unverified. An already-verified account is treated like a missing one (no live OTP),
+        // so it can't be a candidate. matchesVerificationOtp spends exactly one BCrypt compare on
+        // every path — real hash for a live candidate, dummy hash otherwise — so the branches are
+        // also indistinguishable by timing.
+        UserEntity candidate = (user != null && !Boolean.TRUE.equals(user.getVerifiedAccount())) ? user : null;
+        if (!otpService.matchesVerificationOtp(candidate, otp)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired verification code.");
         }
 

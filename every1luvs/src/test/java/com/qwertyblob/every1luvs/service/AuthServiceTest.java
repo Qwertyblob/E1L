@@ -271,7 +271,7 @@ class AuthServiceTest {
     void verifyAccount_happyPath_returnsAuthResponse() {
         UserEntity user = unverifiedUser();
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user));
-        when(otpService.isValidVerificationOtp(user, "123456")).thenReturn(true);
+        when(otpService.matchesVerificationOtp(user, "123456")).thenReturn(true);
         when(userRepository.save(user)).thenReturn(user);
         when(tokenService.createToken(user)).thenReturn("jwt-token");
 
@@ -297,10 +297,10 @@ class AuthServiceTest {
         // Same status/body as a wrong code — no signal that the account doesn't exist.
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ex.getReason()).isEqualTo("Invalid or expired verification code.");
-        // Timing equalization: the missing-user branch runs a dummy compare so it doesn't finish
-        // measurably faster than a real unverified account (which runs the real OTP compare).
-        verify(passwordEncoder).matches(eq("123456"), any());
-        verify(otpService, never()).isValidVerificationOtp(any(), any());
+        // A missing account is passed as a null candidate to the single constant-time compare
+        // (which spends one BCrypt round internally), so it can't finish measurably faster than a
+        // real unverified account. OtpServiceTest proves the exactly-one-compare guarantee.
+        verify(otpService).matchesVerificationOtp(isNull(), eq("123456"));
     }
 
     @Test
@@ -312,14 +312,16 @@ class AuthServiceTest {
         // Already-verified is now indistinguishable from missing / wrong-code (was 409 before).
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ex.getReason()).isEqualTo("Invalid or expired verification code.");
-        verify(passwordEncoder).matches(eq("123456"), any());
+        // Treated like a missing account: passed as a null candidate, so it spends the same one
+        // dummy-hash compare and never touches the (already-cleared) stored OTP.
+        verify(otpService).matchesVerificationOtp(isNull(), eq("123456"));
     }
 
     @Test
     void verifyAccount_invalidOtp_throws400() {
         UserEntity user = unverifiedUser();
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user));
-        when(otpService.isValidVerificationOtp(user, "000000")).thenReturn(false);
+        when(otpService.matchesVerificationOtp(user, "000000")).thenReturn(false);
 
         var ex = catchThrowableOfType(
                 () -> authService.verifyAccount(new VerifyAccountRequest("alice@example.com", "000000"), "203.0.113.5"),
