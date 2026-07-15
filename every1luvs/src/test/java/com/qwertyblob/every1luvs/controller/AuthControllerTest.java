@@ -73,15 +73,19 @@ class AuthControllerTest {
     @Test
     void verifyAccount_setsAuthCookieAndReturnsUser() {
         VerifyAccountRequest request = new VerifyAccountRequest("alice@example.com", "123456");
-        when(authService.verifyAccount(request)).thenReturn(new AuthResponse("jwt-token", USER));
+        HttpServletRequest httpRequest = mock(HttpServletRequest.class);
+        when(clientIpResolver.resolve(httpRequest)).thenReturn("203.0.113.5");
+        when(authService.verifyAccount(request, "203.0.113.5")).thenReturn(new AuthResponse("jwt-token", USER));
         when(authCookieService.build("jwt-token"))
                 .thenReturn(ResponseCookie.from("auth_token", "jwt-token").build());
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        UserResponse result = authController.verifyAccount(request, response);
+        UserResponse result = authController.verifyAccount(request, httpRequest, response);
 
         assertThat(result).isEqualTo(USER);
         assertThat(response.getHeader(HttpHeaders.SET_COOKIE)).contains("auth_token=jwt-token");
+        // The resolved client IP must reach the service so the per-IP verify limiter keys on it.
+        verify(authService).verifyAccount(request, "203.0.113.5");
     }
 
     @Test

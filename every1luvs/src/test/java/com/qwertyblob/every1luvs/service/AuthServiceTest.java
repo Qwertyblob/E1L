@@ -196,6 +196,21 @@ class AuthServiceTest {
     }
 
     @Test
+    void login_oversizedCredentials_rejectedBeforeKeysBucketsOrBcrypt() {
+        // An unbounded email would be stored verbatim as a rate-limiter map key and an unbounded
+        // password fed to BCrypt. The length guard runs first, so neither the limiter, the
+        // repository, nor the hasher is ever touched — and it returns the same generic 401.
+        String hugeEmail = "a".repeat(300) + "@example.com";
+        var ex = catchThrowableOfType(
+                () -> authService.login(new LoginRequest(hugeEmail, "Password1"), "203.0.113.5"),
+                ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(ex.getReason()).isEqualTo("Invalid email or password.");
+        verifyNoInteractions(rateLimiter, userRepository);
+        verify(passwordEncoder, never()).matches(any(), any());
+    }
+
+    @Test
     void login_wrongPassword_throws401() {
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(verifiedUser()));
         when(passwordEncoder.matches(anyString(), anyString())).thenReturn(false);
@@ -260,7 +275,7 @@ class AuthServiceTest {
         when(userRepository.save(user)).thenReturn(user);
         when(tokenService.createToken(user)).thenReturn("jwt-token");
 
-        AuthResponse response = authService.verifyAccount(new VerifyAccountRequest("alice@example.com", "123456"));
+        AuthResponse response = authService.verifyAccount(new VerifyAccountRequest("alice@example.com", "123456"), "203.0.113.5");
 
         assertThat(response.token()).isEqualTo("jwt-token");
         verify(otpService).markVerified(user);
@@ -269,26 +284,35 @@ class AuthServiceTest {
 
     @Test
     void verifyAccount_nullRequest_throws400() {
-        var ex = catchThrowableOfType(() -> authService.verifyAccount(null), ResponseStatusException.class);
+        var ex = catchThrowableOfType(() -> authService.verifyAccount(null, "203.0.113.5"), ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     @Test
-    void verifyAccount_userNotFound_throws400() {
+    void verifyAccount_userNotFound_returnsUniform400AndSpendsABcryptCompare() {
         when(userRepository.findByEmail("ghost@example.com")).thenReturn(Optional.empty());
         var ex = catchThrowableOfType(
-                () -> authService.verifyAccount(new VerifyAccountRequest("ghost@example.com", "123456")),
+                () -> authService.verifyAccount(new VerifyAccountRequest("ghost@example.com", "123456"), "203.0.113.5"),
                 ResponseStatusException.class);
+        // Same status/body as a wrong code — no signal that the account doesn't exist.
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getReason()).isEqualTo("Invalid or expired verification code.");
+        // Timing equalization: the missing-user branch runs a dummy compare so it doesn't finish
+        // measurably faster than a real unverified account (which runs the real OTP compare).
+        verify(passwordEncoder).matches(eq("123456"), any());
+        verify(otpService, never()).isValidVerificationOtp(any(), any());
     }
 
     @Test
-    void verifyAccount_alreadyVerified_throws409() {
+    void verifyAccount_alreadyVerified_returnsUniform400AndSpendsABcryptCompare() {
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(verifiedUser()));
         var ex = catchThrowableOfType(
-                () -> authService.verifyAccount(new VerifyAccountRequest("alice@example.com", "123456")),
+                () -> authService.verifyAccount(new VerifyAccountRequest("alice@example.com", "123456"), "203.0.113.5"),
                 ResponseStatusException.class);
-        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        // Already-verified is now indistinguishable from missing / wrong-code (was 409 before).
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getReason()).isEqualTo("Invalid or expired verification code.");
+        verify(passwordEncoder).matches(eq("123456"), any());
     }
 
     @Test
@@ -298,9 +322,10 @@ class AuthServiceTest {
         when(otpService.isValidVerificationOtp(user, "000000")).thenReturn(false);
 
         var ex = catchThrowableOfType(
-                () -> authService.verifyAccount(new VerifyAccountRequest("alice@example.com", "000000")),
+                () -> authService.verifyAccount(new VerifyAccountRequest("alice@example.com", "000000"), "203.0.113.5"),
                 ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getReason()).isEqualTo("Invalid or expired verification code.");
     }
 
     // ─── resendVerificationOtp ───────────────────────────────────────────────────
@@ -349,8 +374,9 @@ class AuthServiceTest {
         assertThat(response.email()).isEqualTo("alice@example.com");
         verify(otpService).assignResetOtp(user);
         verify(otpDeliveryService).sendPasswordResetCode("alice@example.com", "123456");
-        // The password must NOT change just because someone requested a reset.
-        verify(passwordEncoder, never()).encode(anyString());
+        // The password must NOT change just because someone requested a reset. (Exclude the
+        // fixed "000000" the constructor encodes once to build the verify-account dummy hash.)
+        verify(passwordEncoder, never()).encode(argThat(pw -> !"000000".equals(pw)));
         assertThat(user.getPassword()).isEqualTo(originalHash);
     }
 

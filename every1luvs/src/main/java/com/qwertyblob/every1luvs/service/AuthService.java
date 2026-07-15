@@ -41,6 +41,10 @@ public class AuthService {
     private static final int MAX_OTP_ATTEMPTS = 5;
     private static final long OTP_WINDOW_MS = 10 * 60 * 1_000L;
 
+    // Per-IP cap on verify-account on top of the per-email one: stops one address from spraying
+    // verification guesses across many accounts. Same generous shared-NAT allowance as login.
+    private static final int MAX_OTP_ATTEMPTS_PER_IP = 30;
+
     private static final int MAX_RESEND_ATTEMPTS = 3;
     private static final long RESEND_WINDOW_MS = 10 * 60 * 1_000L;
 
@@ -50,6 +54,12 @@ public class AuthService {
     private final OtpService otpService;
     private final OtpDeliveryService otpDeliveryService;
     private final RateLimiterService rateLimiter;
+
+    // A throwaway hash in the encoder's own format/cost, matched against on the verify-account
+    // failure branches that never reach the real OTP compare (no such user / already verified),
+    // so all failures spend one BCrypt compare and can't be told apart by timing. Computed once
+    // at startup rather than hardcoded so it always matches whatever PasswordEncoder is wired in.
+    private final String dummyOtpHash;
 
     public AuthService(
             UserRepository userRepository,
@@ -65,6 +75,7 @@ public class AuthService {
         this.otpService = otpService;
         this.otpDeliveryService = otpDeliveryService;
         this.rateLimiter = rateLimiter;
+        this.dummyOtpHash = passwordEncoder.encode("000000");
     }
 
     public MessageResponse register(RegisterRequest request) {
@@ -120,6 +131,14 @@ public class AuthService {
         String email = normalizeEmail(request.email());
         String password = normalizeText(request.password());
 
+        // Bound both inputs before they become rate-limiter map keys or reach BCrypt: an
+        // unbounded email would be stored verbatim as a limiter key (memory abuse) and an
+        // unbounded password fed to the hasher. Length-only (not format) so an oversized value
+        // returns the same generic 401 as any wrong credential and stays enumeration-safe.
+        if (email.length() > MAX_EMAIL_LENGTH || password.length() > MAX_PASSWORD_LENGTH) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password.");
+        }
+
         // Per-IP first (broad spray defence), then per-email (single-account brute force).
         // The IP bucket is never reset on success: interleaving valid logins must not let
         // an attacker clear their spray budget.
@@ -144,7 +163,7 @@ public class AuthService {
         return new AuthResponse(tokenService.createToken(user), UserResponse.from(user));
     }
 
-    public AuthResponse verifyAccount(VerifyAccountRequest request) {
+    public AuthResponse verifyAccount(VerifyAccountRequest request, String clientIp) {
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Verification details are required.");
         }
@@ -153,16 +172,29 @@ public class AuthService {
         String otp = normalizeText(request.otp());
         validateEmail(email);
 
+        // Per-IP first (spray across accounts), then per-email (guesses at one account).
+        if (clientIp != null && !clientIp.isBlank()) {
+            rateLimiter.check("otp-verify-ip:" + clientIp, MAX_OTP_ATTEMPTS_PER_IP, OTP_WINDOW_MS,
+                    "Too many verification attempts. Try again later.");
+        }
         rateLimiter.check("otp-verify:" + email, MAX_OTP_ATTEMPTS, OTP_WINDOW_MS,
                 "Too many verification attempts. Request a new code.");
 
-        UserEntity user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid verification code."));
+        UserEntity user = userRepository.findByEmail(email).orElse(null);
 
-        if (Boolean.TRUE.equals(user.getVerifiedAccount())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Account is already verified.");
-        }
-        if (!otpService.isValidVerificationOtp(user, otp)) {
+        // Every failure (no such account, already verified, wrong/expired code) returns the same
+        // status and body so verify-account can't be used to probe which emails exist or are
+        // unverified. The only branch that runs the real OTP compare is a genuine unverified
+        // account; the other two would skip BCrypt and finish measurably faster, so they run a
+        // throwaway compare against dummyOtpHash to equalize timing (Java && short-circuits, so
+        // the real compare below never runs when the account is missing or already verified).
+        boolean verified = user != null
+                && !Boolean.TRUE.equals(user.getVerifiedAccount())
+                && otpService.isValidVerificationOtp(user, otp);
+        if (!verified) {
+            if (user == null || Boolean.TRUE.equals(user.getVerifiedAccount())) {
+                passwordEncoder.matches(otp, dummyOtpHash);
+            }
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired verification code.");
         }
 
