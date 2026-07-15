@@ -61,8 +61,9 @@ public class BookingMailService {
     private final JavaMailSender mailSender;
     private final String fromAddress;
     // Inbox that receives the full booking notification (all details + inspo photos) on every
-    // booking — the bootstrap admin's email. Falls back to the from address if it is unset so the
-    // notification always lands somewhere readable.
+    // booking — a dedicated ADMIN_NOTIFICATION_EMAIL. Falls back to the from address if it is unset
+    // so the notification always lands somewhere readable (and so it no longer depends on the
+    // one-time bootstrap-admin credentials, which are removed after initialization).
     private final String adminAddress;
     // Destination for the post-appointment review request (e.g. a Google Business "write a review"
     // link). Blank until configured; while blank the review-request feature is dormant — nothing is
@@ -75,7 +76,7 @@ public class BookingMailService {
     public BookingMailService(
             JavaMailSender mailSender,
             @Value("${app.mail.from}") String fromAddress,
-            @Value("${app.auth.bootstrap-admin-email:}") String adminAddress,
+            @Value("${app.mail.admin-to:}") String adminAddress,
             @Value("${app.review.url:}") String reviewUrl,
             @Value("${app.rebooking.url:}") String rebookingUrl
     ) {
