@@ -47,8 +47,10 @@ public class AuthController {
     }
 
     @PostMapping("/verify-account")
-    public UserResponse verifyAccount(@RequestBody VerifyAccountRequest request, HttpServletResponse response) {
-        return issueSession(authService.verifyAccount(request), response);
+    public UserResponse verifyAccount(@RequestBody VerifyAccountRequest request, HttpServletRequest httpRequest,
+                                      HttpServletResponse response) {
+        // Client IP feeds the per-IP verify limiter alongside the per-email bucket.
+        return issueSession(authService.verifyAccount(request, clientIpResolver.resolve(httpRequest)), response);
     }
 
     @PostMapping("/logout")
