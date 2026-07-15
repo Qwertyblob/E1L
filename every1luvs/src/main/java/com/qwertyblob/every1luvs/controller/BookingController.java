@@ -6,6 +6,7 @@ import com.qwertyblob.every1luvs.dto.PageResponse;
 import com.qwertyblob.every1luvs.security.ClientIpResolver;
 import com.qwertyblob.every1luvs.service.BookingMailService;
 import com.qwertyblob.every1luvs.service.BookingService;
+import com.qwertyblob.every1luvs.service.ReviewRequestService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -28,15 +29,18 @@ public class BookingController {
 
     private final BookingService bookingService;
     private final BookingMailService bookingMailService;
+    private final ReviewRequestService reviewRequestService;
     private final ClientIpResolver clientIpResolver;
 
     public BookingController(
             BookingService bookingService,
             BookingMailService bookingMailService,
+            ReviewRequestService reviewRequestService,
             ClientIpResolver clientIpResolver
     ) {
         this.bookingService = bookingService;
         this.bookingMailService = bookingMailService;
+        this.reviewRequestService = reviewRequestService;
         this.clientIpResolver = clientIpResolver;
     }
 
@@ -100,6 +104,10 @@ public class BookingController {
     @PostMapping("/admin/bookings/{id}/complete")
     @PreAuthorize("hasRole('ADMIN')")
     public BookingResponse adminCompleteBooking(@PathVariable Long id) {
-        return bookingService.adminCompleteBooking(id);
+        BookingResponse completed = bookingService.adminCompleteBooking(id);
+        // Post-commit + @Async, so a mail failure can't fail the completion. Only COMPLETED
+        // bookings reach here, so no-shows are never asked; dormant until a review URL is set.
+        reviewRequestService.sendReviewRequestNow(completed);
+        return completed;
     }
 }

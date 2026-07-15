@@ -65,6 +65,21 @@ public class BookingEntity {
     @Column(name = "archived_at")
     private Instant archivedAt;
 
+    // When the ~2-days-before reminder email was sent (null = not yet reminded). Stamped by
+    // ReminderService so a booking is reminded at most once, even across re-runs.
+    @Column(name = "reminder_sent_at")
+    private Instant reminderSentAt;
+
+    // When the post-appointment review-request email was sent (null = not yet asked). Stamped by
+    // ReviewRequestService, and only ever for COMPLETED bookings, so a booking is asked at most once.
+    @Column(name = "review_sent_at")
+    private Instant reviewSentAt;
+
+    // When the ~3-weeks-after rebooking-prompt email was sent (null = not yet nudged). Stamped by
+    // RebookingService, and only ever for COMPLETED bookings, so a booking is nudged at most once.
+    @Column(name = "rebooking_sent_at")
+    private Instant rebookingSentAt;
+
     @CreationTimestamp
     @Column(updatable = false)
     private Instant createdAt;
@@ -123,6 +138,15 @@ public class BookingEntity {
 
     public Instant getArchivedAt() { return archivedAt; }
     public void setArchivedAt(Instant archivedAt) { this.archivedAt = archivedAt; }
+
+    public Instant getReminderSentAt() { return reminderSentAt; }
+    public void setReminderSentAt(Instant reminderSentAt) { this.reminderSentAt = reminderSentAt; }
+
+    public Instant getReviewSentAt() { return reviewSentAt; }
+    public void setReviewSentAt(Instant reviewSentAt) { this.reviewSentAt = reviewSentAt; }
+
+    public Instant getRebookingSentAt() { return rebookingSentAt; }
+    public void setRebookingSentAt(Instant rebookingSentAt) { this.rebookingSentAt = rebookingSentAt; }
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
