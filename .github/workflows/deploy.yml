@@ -10,7 +10,12 @@ on:
     workflows: ["CI"]          # the name: of ci.yml
     types: [completed]
     branches: [main]
-  workflow_dispatch: {}        # allow a manual deploy from the Actions tab (main only; see the job `if`)
+  workflow_dispatch:           # allow a manual deploy from the Actions tab (main only; see the job `if`)
+    inputs:
+      dry_run:
+        description: "Validate only: resolve DEPLOY_SHA and build images WITHOUT pushing or SSH-deploying"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-prod           # never run two deploys at once
@@ -25,6 +30,10 @@ env:
   # the commit CI actually tested) — so we MUST use the triggering run's head_sha instead.
   # For workflow_dispatch, github.sha is the selected ref's commit, which is what we want.
   DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  # true only for a manual dispatch with the dry_run box ticked; builds without pushing and skips
+  # the SSH deploy, so the pipeline (SHA resolution, off-main rejection, build) can be exercised
+  # on main without touching production.
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
 
 jobs:
   build-and-push:
@@ -45,6 +54,12 @@ jobs:
       contents: read
       packages: write          # push to GHCR with the built-in GITHUB_TOKEN
     steps:
+      - name: Resolve deploy target
+        run: |
+          echo "event=${{ github.event_name }} ref=${{ github.ref }}"
+          echo "DEPLOY_SHA=${{ env.DEPLOY_SHA }}"
+          echo "DRY_RUN=${{ env.DRY_RUN }}"
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.DEPLOY_SHA }}   # build the exact commit CI passed, not the branch tip
@@ -63,7 +78,7 @@ jobs:
         with:
           context: .                       # repo root (Maven build needs client/src/services.json)
           file: every1luvs/Dockerfile
-          push: true
+          push: ${{ env.DRY_RUN != 'true' }}   # dry run builds to validate but never publishes
           tags: |
             ${{ env.APP_IMAGE }}:latest
             ${{ env.APP_IMAGE }}:${{ env.DEPLOY_SHA }}
@@ -75,7 +90,7 @@ jobs:
         with:
           context: .
           file: web/Dockerfile
-          push: true
+          push: ${{ env.DRY_RUN != 'true' }}   # dry run builds to validate but never publishes
           tags: |
             ${{ env.WEB_IMAGE }}:latest
             ${{ env.WEB_IMAGE }}:${{ env.DEPLOY_SHA }}
@@ -84,6 +99,8 @@ jobs:
 
   deploy:
     needs: build-and-push
+    # Never SSH to prod on a dry run (build-and-push still runs to validate the build).
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
     runs-on: ubuntu-latest
     # Gate production behind a GitHub Environment. NOTE: a required reviewer / branch policy
     # must be configured in repo Settings → Environments → production; the YAML reference alone
