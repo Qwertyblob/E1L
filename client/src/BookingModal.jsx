@@ -12,6 +12,9 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 const MAX_ATTACHMENTS = 5;
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_ATTACHMENT_BYTES = 15 * 1024 * 1024;
+// Only formats the server can decode + re-encode (ImageSanitizer uses stock Java ImageIO — no
+// WebP/HEIC). Keep this in step with the accept attribute and the backend allow-list.
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png'];
 
 const TERMS = [
   'All bookings must be made through our website unless otherwise stated.',
@@ -334,9 +337,9 @@ function DetailsStep({
       </label>
       <div className="bk-field">
         <span>Inspo photos (optional)</span>
-        <p className="bk-attach-hint">Add from your photos or files. Up to {MAX_ATTACHMENTS} images, 5&nbsp;MB each.</p>
+        <p className="bk-attach-hint">JPEG or PNG. Up to {MAX_ATTACHMENTS} images, 5&nbsp;MB each.</p>
         <label className="bk-attach-add">
-          <input accept="image/*" multiple onChange={onFileInput} type="file" />
+          <input accept="image/jpeg,image/png" multiple onChange={onFileInput} type="file" />
           <span>+ Add photos</span>
         </label>
         {attachments.length > 0 && (
@@ -440,8 +443,8 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     setAttachmentError('');
 
     let error = '';
-    const images = files.filter((f) => f.type.startsWith('image/'));
-    if (images.length !== files.length) error = 'Only image files can be attached.';
+    const images = files.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type));
+    if (images.length !== files.length) error = 'Only JPEG or PNG images can be attached.';
 
     let count = attachments.length;
     let totalBytes = attachments.reduce((sum, a) => sum + (a.size || 0), 0);

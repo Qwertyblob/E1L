@@ -1,6 +1,5 @@
 package com.qwertyblob.every1luvs.service;
 
-import com.qwertyblob.every1luvs.dto.BookingAttachment;
 import com.qwertyblob.every1luvs.dto.BookingResponse;
 import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.Test;
@@ -225,7 +224,9 @@ class BookingMailServiceTest {
     @Test
     void sendAdminBookingNotification_sendsToAdminWithPhotoAttached() throws Exception {
         when(mailSender.createMimeMessage()).thenReturn(new JavaMailSenderImpl().createMimeMessage());
-        BookingAttachment image = new BookingAttachment("inspo.png", "image/png", "aGVsbG8=");
+        // Server-owned sanitized image (ImageSanitizer's output) — the mail service attaches its
+        // bytes/type/name verbatim, so a real raster isn't needed here.
+        SanitizedImage image = new SanitizedImage("inspo-1.png", "image/png", new byte[]{1, 2, 3});
 
         service.sendAdminBookingNotification(
                 booking("alice@example.com", "Tier 1 — Simple", "No removal needed"), List.of(image));
