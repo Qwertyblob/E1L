@@ -15,6 +15,15 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Non-mutating preflight (used by setup-backup-cron.sh as the install-time test): verify the tools
+# this watchdog needs, then exit — it NEVER greps logs or fires the alert webhook.
+if [[ "${1:-}" == "--check" ]]; then
+  rc=0
+  for c in docker grep wc; do command -v "$c" >/dev/null 2>&1 || { echo "MISSING command: $c" >&2; rc=1; }; done
+  [[ $rc -eq 0 ]] && echo "check-mail-failures --check: OK"
+  exit $rc
+fi
+
 MARKER="ASYNC_TASK_FAILURE"
 
 FAILURES="$(docker compose logs --no-color --since=35m app 2>/dev/null | grep "$MARKER" || true)"

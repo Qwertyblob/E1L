@@ -8,8 +8,11 @@
 #   every 30 min  check-mail-failures.sh   alert if the app logged mail-delivery failures
 #   every 5 min   log-monitor.sh           detect prod errors -> dispatch the AI diagnoser
 #
-# Cron output lands in /var/log/e1l-*.log; set MAILTO in the crontab (or a Cloudflare
-# notification on the logs) if you want failures pushed instead of pulled.
+# Cron output lands in $XDG_STATE_HOME/every1luvs/logs (default ~/.local/state/every1luvs/logs) —
+# a deploy-user-owned dir, verified writable at install (redirecting to /var/log needs root and
+# would make the cron line fail before the script runs). Before scheduling, each job is dry-run
+# with its non-mutating --check flag so a missing tool/env or bad PATH fails HERE, not at 03:15.
+# Set MAILTO in the crontab (or a Cloudflare notification on the logs) to push failures.
 
 set -euo pipefail
 
@@ -22,12 +25,45 @@ chmod +x "$REPO_ROOT/scripts/backup-to-r2.sh" \
          "$REPO_ROOT/scripts/check-mail-failures.sh" \
          "$REPO_ROOT/scripts/log-monitor.sh"
 
+# Deploy-user-owned log dir (NOT /var/log, which needs root to create/own — a cron line that can't
+# open its redirect target fails before the script runs). Confirm it's writable before scheduling.
+LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/every1luvs/logs"
+mkdir -p "$LOG_DIR"
+if ! ( : > "$LOG_DIR/.write-test" ) 2>/dev/null; then
+  echo "ERROR: cannot write to log dir $LOG_DIR" >&2
+  exit 1
+fi
+rm -f "$LOG_DIR/.write-test"
+
+# Cron runs with a minimal PATH; resolve the tools now and bake a PATH covering their dirs plus the
+# standard locations, so the scheduled scripts find docker/rclone/python3/git.
+CRON_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+for cmd in docker rclone python3 git; do
+  p="$(command -v "$cmd" 2>/dev/null || true)"
+  [[ -n "$p" ]] && CRON_PATH="$(dirname "$p"):$CRON_PATH"
+done
+
+# Install-time smoke test: run each job's non-mutating --check under the SAME PATH cron will use, so
+# a missing tool/env or bad PATH surfaces now instead of silently at 03:15. None of these back up,
+# restore, alert or dispatch. Abort the install if any fails.
+echo "Preflight (--check) on each scheduled script:"
+preflight_failed=0
+for s in backup-to-r2 restore-from-r2 check-mail-failures log-monitor; do
+  if ! PATH="$CRON_PATH" "$REPO_ROOT/scripts/$s.sh" --check; then
+    echo "  PREFLIGHT FAILED: $s.sh --check" >&2
+    preflight_failed=1
+  fi
+done
+[[ $preflight_failed -eq 0 ]] || { echo "Aborting install — fix the failures above and re-run." >&2; exit 1; }
+
 BLOCK="$(cat <<EOF
 $MARKER_BEGIN
-15 3 * * *   $REPO_ROOT/scripts/backup-to-r2.sh        >> /var/log/e1l-backup.log 2>&1
-45 3 1 * *   $REPO_ROOT/scripts/restore-from-r2.sh     >> /var/log/e1l-restore-drill.log 2>&1
-*/30 * * * * $REPO_ROOT/scripts/check-mail-failures.sh >> /var/log/e1l-mail-alert.log 2>&1
-*/5 * * * *  $REPO_ROOT/scripts/log-monitor.sh         >> /var/log/e1l-log-monitor.log 2>&1
+SHELL=/bin/bash
+PATH=$CRON_PATH
+15 3 * * *   $REPO_ROOT/scripts/backup-to-r2.sh        >> $LOG_DIR/backup.log 2>&1
+45 3 1 * *   $REPO_ROOT/scripts/restore-from-r2.sh     >> $LOG_DIR/restore-drill.log 2>&1
+*/30 * * * * $REPO_ROOT/scripts/check-mail-failures.sh >> $LOG_DIR/mail-alert.log 2>&1
+*/5 * * * *  $REPO_ROOT/scripts/log-monitor.sh         >> $LOG_DIR/log-monitor.log 2>&1
 $MARKER_END
 EOF
 )"
