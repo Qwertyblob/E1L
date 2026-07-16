@@ -151,7 +151,7 @@ public class SecurityConfig {
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("Content-Type", "X-XSRF-TOKEN"));
         // Credentials must be allowed so the browser sends/receives the httpOnly auth cookie
-        // and the XSRF-TOKEN cookie cross-origin (localhost:3000 -> localhost:8080).
+        // and the XSRF-TOKEN cookie cross-origin (Vite dev on localhost:5173 -> localhost:8080).
         config.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

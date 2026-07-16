@@ -24,7 +24,7 @@ jobs:
         working-directory: every1luvs
 
   client:
-    name: Client tests + build (CRA)
+    name: Client lint, tests + build (Vite)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -38,13 +38,12 @@ jobs:
           cache-dependency-path: client/package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Lint
+        run: npm run lint
       - name: Run tests
-        run: npm test -- --watchAll=false
-        env:
-          CI: 'true'
-      # Same flag the web/Dockerfile build uses, so CI verifies the exact prod bundle
-      # (no inline runtime chunk; required by the strict script-src CSP in nginx).
+        run: npm test
+      # Vite build; mirrors the web/Dockerfile prod build so CI verifies the exact
+      # bundle (external module script only — no inline <script> — required by the
+      # strict script-src 'self' CSP in nginx).
       - name: Production build
         run: npm run build
-        env:
-          INLINE_RUNTIME_CHUNK: 'false'

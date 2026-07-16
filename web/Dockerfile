@@ -5,10 +5,10 @@ WORKDIR /app
 COPY client/package.json client/package-lock.json ./
 RUN npm ci
 COPY client/ ./
-# REACT_APP_API_URL intentionally UNSET -> API_BASE_URL falls back to '' -> relative /api (same-origin).
-# INLINE_RUNTIME_CHUNK=false keeps index.html free of inline <script>, which the strict
+# VITE_API_URL intentionally UNSET -> API_BASE_URL falls back to '' -> relative /api (same-origin).
+# Vite emits only an external module <script src>; combined with vite.config.js's
+# build.modulePreload.polyfill=false it produces no inline <script>, which the strict
 # script-src 'self' CSP in nginx/nginx.conf requires (no 'unsafe-inline').
-ENV INLINE_RUNTIME_CHUNK=false
 RUN npm run build
 
 # ---- serve via nginx ----
@@ -19,5 +19,5 @@ COPY nginx/nginx.conf /etc/nginx/conf.d/app.conf
 # Shared /api proxy snippet included by the per-route location blocks in app.conf. Not in
 # conf.d/ (those load at http scope); included by absolute path from inside each location.
 COPY nginx/api_proxy.conf /etc/nginx/api_proxy.conf
-COPY --from=build /app/build /usr/share/nginx/html
+COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80

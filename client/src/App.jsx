@@ -20,8 +20,8 @@ import { useFocusTrap } from './useFocusTrap';
 // dev server's "proxy" (package.json) to the backend. Same-origin is required for the
 // auth/CSRF cookies to be treated as first-party (a cross-origin localhost:8080 base
 // leaves them unstored, so the JS can't read XSRF-TOKEN and writes 403). In prod, set
-// REACT_APP_API_URL only if the API is served from a different origin.
-const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+// VITE_API_URL only if the API is served from a different origin.
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 const galleryImages = [
   imgExpressManicure,
@@ -90,7 +90,7 @@ class ApiError extends Error {
 
 async function parseApiResponse(response) {
   const responseText = await response.text();
-  let data = null;
+  let data;
   try {
     data = responseText ? JSON.parse(responseText) : null;
   } catch {
@@ -323,6 +323,9 @@ function App() {
   // Runs once on mount: confirms auth from the cookie via GET /api/me, and seeds the
   // XSRF-TOKEN cookie (the server sets it on this response) before any write request.
   useEffect(() => {
+    // Intentional: seed auth/CSRF state from the cookie on mount (async, sets state
+    // after the fetch). react-hooks/set-state-in-effect can't see past the callback.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshProfile();
   }, [refreshProfile]);
 
@@ -342,6 +345,9 @@ function App() {
   }, [apiRequest, user]);
 
   useEffect(() => {
+    // Intentional data-loading effect: loadMyBookings sets loading/error state as it
+    // fetches the signed-in user's bookings whenever the user changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadMyBookings();
   }, [loadMyBookings]);
 
@@ -363,6 +369,8 @@ function App() {
     if (pendingScroll && activeView === 'landing') {
       const el = document.getElementById(pendingScroll);
       if (el) el.scrollIntoView({ behavior: 'smooth' });
+      // Intentional: clear the one-shot scroll request after performing the scroll.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPendingScroll(null);
     }
   }, [pendingScroll, activeView]);
