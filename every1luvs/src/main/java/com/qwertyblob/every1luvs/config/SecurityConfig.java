@@ -82,6 +82,13 @@ public class SecurityConfig {
                                 "/api/auth/forgot-password",
                                 "/api/auth/reset-password"
                         ).permitAll()
+                        // Logout is permitAll so a caller with an expired/absent auth cookie can
+                        // still clear it — an authenticated-only logout is useless to the very
+                        // sessions that most need to reset. It is deliberately NOT in the CSRF
+                        // ignoringRequestMatchers above: CSRF stays enforced so a cross-site page
+                        // can't force-logout a signed-in user. The SPA always holds the XSRF-TOKEN
+                        // it seeds on every response, so a protected logout still works.
+                        .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
                         .requestMatchers("/error").permitAll()
                         // Compose healthcheck probe; port 8080 is never published to the host,
                         // so this is only reachable from inside the compose networks.

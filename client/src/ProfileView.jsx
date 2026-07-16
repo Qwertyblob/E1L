@@ -142,6 +142,7 @@ function AccountTab({
   user,
   refreshProfile,
   signOut,
+  signOutMessage,
   handleChangePassword,
   updateChangePasswordField,
   changePasswordForm,
@@ -180,6 +181,9 @@ function AccountTab({
         </dl>
         <div style={{ marginTop: '20px' }}>
           <button className="outline-button outline-button--sm" onClick={signOut} type="button">Sign out</button>
+          {signOutMessage && (
+            <p className="form-message error" role="alert">{signOutMessage}</p>
+          )}
         </div>
       </article>
 
@@ -1104,6 +1108,7 @@ function ProfileView({
   setConfirmCancelId,
   refreshProfile,
   signOut,
+  signOutMessage,
   handleChangePassword,
   updateChangePasswordField,
   changePasswordForm,
@@ -1236,6 +1241,7 @@ function ProfileView({
             user={user}
             refreshProfile={refreshProfile}
             signOut={signOut}
+            signOutMessage={signOutMessage}
             handleChangePassword={handleChangePassword}
             updateChangePasswordField={updateChangePasswordField}
             changePasswordForm={changePasswordForm}
