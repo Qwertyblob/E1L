@@ -7,8 +7,10 @@
 #   2. Configure an R2 remote named `r2` (S3-compatible):  rclone config
 #      (provider: Cloudflare R2; supply account R2 access key/secret + endpoint)
 #   3. Make this executable:      chmod +x scripts/backup-to-r2.sh
-#   4. Schedule it (crontab -e), e.g. nightly at 03:15:
-#        15 3 * * * /opt/every1luvs/scripts/backup-to-r2.sh >> /var/log/e1l-backup.log 2>&1
+#   4. Schedule it — preferably via scripts/setup-backup-cron.sh, which installs all ops jobs with
+#      a writable log dir + a resolved cron PATH. To schedule by hand instead (e.g. nightly at 03:15),
+#      log to a user-writable dir, NOT /var/log (that needs root, so the cron line would fail):
+#        15 3 * * * /opt/every1luvs/scripts/backup-to-r2.sh >> ~/.local/state/every1luvs/logs/backup.log 2>&1
 #
 # Retention: set a lifecycle rule on the R2 bucket (e.g. delete after 30 days) to stay free-tier.
 

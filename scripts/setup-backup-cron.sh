@@ -12,7 +12,8 @@
 # a deploy-user-owned dir, verified writable at install (redirecting to /var/log needs root and
 # would make the cron line fail before the script runs). Before scheduling, each job is dry-run
 # with its non-mutating --check flag so a missing tool/env or bad PATH fails HERE, not at 03:15.
-# Set MAILTO in the crontab (or a Cloudflare notification on the logs) to push failures.
+# Each job also emits one unredirected line on FAILURE so cron's MAILTO mails it (cron mails
+# captured output, not exit codes). Set MAILTO in the crontab to receive those, or watch the logs.
 
 set -euo pipefail
 
@@ -60,10 +61,16 @@ BLOCK="$(cat <<EOF
 $MARKER_BEGIN
 SHELL=/bin/bash
 PATH=$CRON_PATH
-15 3 * * *   $REPO_ROOT/scripts/backup-to-r2.sh        >> $LOG_DIR/backup.log 2>&1
-45 3 1 * *   $REPO_ROOT/scripts/restore-from-r2.sh     >> $LOG_DIR/restore-drill.log 2>&1
-*/30 * * * * $REPO_ROOT/scripts/check-mail-failures.sh >> $LOG_DIR/mail-alert.log 2>&1
-*/5 * * * *  $REPO_ROOT/scripts/log-monitor.sh         >> $LOG_DIR/log-monitor.log 2>&1
+# Uncomment and set your address to receive the failure notices below — cron mails a job's captured
+# output, so set MAILTO or you get nothing (a Cloudflare log notification is the pull alternative):
+# MAILTO=you@example.com
+# Each job logs full output to its file; on FAILURE it ALSO emits one unredirected line so cron's
+# MAILTO delivers it. cron mails captured output, not exit codes, so a fully-redirected job would
+# otherwise fail silently — that is exactly why the mail-failure watchdog needs the "|| echo".
+15 3 * * *   $REPO_ROOT/scripts/backup-to-r2.sh        >> $LOG_DIR/backup.log 2>&1        || echo "e1l cron: backup-to-r2 FAILED (exit \$?) — see $LOG_DIR/backup.log"
+45 3 1 * *   $REPO_ROOT/scripts/restore-from-r2.sh     >> $LOG_DIR/restore-drill.log 2>&1 || echo "e1l cron: restore-drill FAILED (exit \$?) — see $LOG_DIR/restore-drill.log"
+*/30 * * * * $REPO_ROOT/scripts/check-mail-failures.sh >> $LOG_DIR/mail-alert.log 2>&1    || echo "e1l cron: mail-failure watchdog tripped (exit \$?) — see $LOG_DIR/mail-alert.log"
+*/5 * * * *  $REPO_ROOT/scripts/log-monitor.sh         >> $LOG_DIR/log-monitor.log 2>&1   || echo "e1l cron: log-monitor dispatch FAILED (exit \$?) — see $LOG_DIR/log-monitor.log"
 $MARKER_END
 EOF
 )"

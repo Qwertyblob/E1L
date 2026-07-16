@@ -36,7 +36,7 @@ GitHub issue  → push notification → you triage (fix PR for code, run command
    ```
    bash ~/E1L/scripts/setup-backup-cron.sh
    ```
-   It also schedules `log-monitor.sh` every 5 min, logging to `/var/log/e1l-log-monitor.log`.
+   It also schedules `log-monitor.sh` every 5 min, logging to `~/.local/state/every1luvs/logs/log-monitor.log`.
 
 4. **Turn on notifications.** Watch `Qwertyblob/E1L` (or enable issue notifications) and install
    the **GitHub mobile app** — that's how the alert reaches you off the VPS.
@@ -74,7 +74,7 @@ depend on a provider's availability, rate limits, or sandboxed tool execution.
 
 ## When something goes wrong
 
-- **No dispatch fired:** `tail /var/log/e1l-log-monitor.log` on the VPS. `dispatch FAILED (HTTP
+- **No dispatch fired:** `tail ~/.local/state/every1luvs/logs/log-monitor.log` on the VPS. `dispatch FAILED (HTTP
   401/403)` means the token is wrong/under-scoped or not loaded into the shell; `CIRCUIT OPEN`
   means the hourly cap was hit.
 - **Dispatch fired but no issue:** check the workflow run in the Actions tab. A 204 from the curl
