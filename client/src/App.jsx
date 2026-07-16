@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 import BookingModal from './BookingModal';
 import LandingView from './LandingView';
@@ -230,10 +230,17 @@ function App() {
     resetSlotBuilder,
   } = useSlotBuilder({ apiRequest, onSlotsCreated: loadAdminSlots });
 
+  // Monotonic counter bumped on every auth-state transition (saveSession / clearSession).
+  // refreshProfile snapshots it before its request and discards any result whose generation
+  // is no longer current, so a slow or reordered GET /api/me can't clobber a newer auth state
+  // (a stale 401 erasing a fresh login, or a stale 200 resurrecting a session after logout).
+  const authGenerationRef = useRef(0);
+
   // Local-only teardown of client auth state. Used both by an explicit sign-out and
   // when the server says we're no longer authenticated (GET /api/me 401). It does NOT
   // call the logout endpoint — see signOut for that.
   const clearSession = useCallback(() => {
+    authGenerationRef.current += 1;
     localStorage.removeItem('authUser');
     setUser(null);
     setAdminUsers([]);
@@ -282,6 +289,7 @@ function App() {
   // Login/verify now return only the user object (the JWT is set as an httpOnly cookie
   // by the server and never reaches JS).
   const saveSession = useCallback((authUser) => {
+    authGenerationRef.current += 1;
     localStorage.setItem('authUser', JSON.stringify(authUser));
     setUser(authUser);
     setPendingVerificationEmail('');
@@ -289,11 +297,18 @@ function App() {
   }, []);
 
   const refreshProfile = useCallback(async () => {
+    // Snapshot the auth generation before the request. If a login (saveSession) or a teardown
+    // (clearSession) bumps it while GET /api/me is in flight, this result is stale and must be
+    // dropped for BOTH outcomes — otherwise a late 401 could erase a fresh login, or a late 200
+    // could resurrect a session after logout.
+    const generation = authGenerationRef.current;
     try {
       const profile = await apiRequest('/api/me');
+      if (generation !== authGenerationRef.current) return;
       localStorage.setItem('authUser', JSON.stringify(profile));
       setUser(profile);
     } catch (error) {
+      if (generation !== authGenerationRef.current) return;
       // Only an explicit auth rejection (401 anonymous/expired cookie, 403 forbidden) means
       // the session is truly gone — tear it down so no stale user lingers. A transient
       // failure (5xx, or a fetch that never reached the server, which has no .status) is
