@@ -67,7 +67,6 @@ class BookingServiceTest {
             return b;
         });
         // Client sends a forged cheap price + fake names; the server must ignore them.
-        // classic 45 + tier2 45 + self-gel 30 = 120 min, fits the 240-min test slot.
         CreateBookingRequest request = new CreateBookingRequest(1L, null, null, null, null, null,
                 "FREE STUFF", "CEO", "diamonds", "premium", 1,
                 "classic", "junior", "tier2", "self-gel");
@@ -112,25 +111,6 @@ class BookingServiceTest {
         assertThat(response.status()).isEqualTo("BOOKED");
         assertThat(slot.getBookedCount()).isEqualTo(2);
         verify(slotRepository).saveAndFlush(slot);
-    }
-
-    @Test
-    void createBooking_serviceLongerThanSlot_throws400() {
-        // 30-minute slot, but "structured" is a 60-minute service — must not fit.
-        SlotEntity shortSlot = slot(3, 0);
-        shortSlot.setEndTime(Instant.parse("2099-06-15T09:30:00Z")); // 09:00–09:30 = 30 min
-        when(slotRepository.findById(1L)).thenReturn(Optional.of(shortSlot));
-
-        var ex = catchThrowableOfType(
-                () -> bookingService.createBooking(
-                        new CreateBookingRequest(1L, "Guest Gina", "gina@example.com", null, null, null,
-                                null, null, null, null, null,
-                                "structured", "junior", "none", "none"), null),
-                ResponseStatusException.class);
-
-        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(ex.getReason()).contains("more time than this slot");
-        verify(slotRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -578,9 +558,8 @@ class BookingServiceTest {
         return u;
     }
 
-    // A generous 4-hour future slot so the duration-fit check never rejects the catalog
-    // combinations these tests use (max combo is 90+60+30 = 180 min). Tests that exercise the
-    // duration guard or completion timing override start/end explicitly.
+    // A generous 4-hour future slot. Tests that exercise completion timing override
+    // start/end explicitly.
     private SlotEntity slot(int capacity, int bookedCount) {
         SlotEntity s = new SlotEntity();
         s.setId(1L);

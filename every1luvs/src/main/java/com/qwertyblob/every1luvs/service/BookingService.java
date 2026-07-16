@@ -19,7 +19,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -136,15 +135,6 @@ public class BookingService {
         if (slot.getStartTime() == null || slot.getStartTime().isBefore(earliestStart)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Slots must be booked at least one day in advance.");
-        }
-
-        // The chosen service + add-ons must fit inside the slot's own length. The client mirrors this
-        // (slotCanFit) but the server is authoritative — a caller can't book a 120-min combo into a
-        // 60-min slot by talking to the API directly.
-        if (slot.getEndTime() == null
-                || quote.durationMin() > Duration.between(slot.getStartTime(), slot.getEndTime()).toMinutes()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "The selected services need more time than this slot allows.");
         }
 
         if (user != null) {
@@ -279,11 +269,10 @@ public class BookingService {
     }
 
     private record BookingQuote(String serviceName, String nailArt,
-                                String removal, int totalPrice, int durationMin) {
+                                String removal, int totalPrice) {
     }
 
-    // Resolve canonical names + price + total duration from the server catalog, rejecting unknown
-    // selections. Duration is the authoritative sum used to check the booking fits its slot.
+    // Resolve canonical names + price from the server catalog, rejecting unknown selections.
     private BookingQuote priceFromCatalog(CreateBookingRequest request) {
         BookingCatalog.Service service = BookingCatalog.service(request.serviceId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -296,8 +285,7 @@ public class BookingService {
                         "Unknown removal selection."));
 
         int total = service.price() + nailArt.price() + removal.price();
-        int duration = service.durationMin() + nailArt.durationMin() + removal.durationMin();
-        return new BookingQuote(service.name(), nailArt.name(), removal.name(), total, duration);
+        return new BookingQuote(service.name(), nailArt.name(), removal.name(), total);
     }
 
     @Transactional
