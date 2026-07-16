@@ -10,7 +10,7 @@ whole stack runs as Docker containers behind a Cloudflare Tunnel.
 
 | Layer    | Tech |
 |----------|------|
-| Frontend | React 19 (Create React App), nginx static serving |
+| Frontend | React 19 (Vite), nginx static serving |
 | Backend  | Spring Boot 4, Java 21, Maven |
 | Database | PostgreSQL 17, Flyway migrations |
 | Auth     | JWT in an httpOnly cookie + cookie-based CSRF, BCrypt passwords |
@@ -21,7 +21,7 @@ whole stack runs as Docker containers behind a Cloudflare Tunnel.
 
 ```
 every1luvs/        Spring Boot REST API (controller → service → repository → entity)
-client/            React SPA (Create React App)
+client/            React SPA (Vite)
 web/               Dockerfile that builds the SPA and serves it via nginx
 nginx/             nginx config: realip, security headers/CSP, SPA fallback, /api proxy
 scripts/           Ops: R2 backups, mail-failure alerts, AI log-monitor
@@ -48,9 +48,10 @@ Provide at minimum `AUTH_TOKEN_SECRET` (32+ chars) via environment; see
 
 ```bash
 npm install
-npm start                          # http://localhost:3000, proxies /api to :8080
-npm test -- --watchAll=false       # run tests once
-npm run build                      # production bundle
+npm run dev                        # http://localhost:5173, proxies /api to :8080
+npm test                           # run tests once (Vitest)
+npm run lint                       # ESLint (flat config)
+npm run build                      # production bundle -> dist/
 ```
 
 ### Editing services and prices
@@ -94,7 +95,7 @@ config beyond SMTP.
 ## Testing
 
 - Backend: `./mvnw -B test` (JUnit, JaCoCo coverage at `target/site/jacoco/`).
-- Frontend: `npm test -- --watchAll=false` (React Testing Library + Jest).
+- Frontend: `npm test` (React Testing Library + Vitest); `npm run lint` for ESLint.
 
 Both run automatically in CI on every push to `main` and every pull request.
 

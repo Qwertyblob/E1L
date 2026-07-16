@@ -24,7 +24,7 @@ jobs:
         working-directory: every1luvs
 
   client:
-    name: Client tests + build (CRA)
+    name: Client lint, tests + build (Vite)
     runs-on: ubuntu-latest
     defaults:
       run:
