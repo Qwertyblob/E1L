@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ImageSanitizerTest {
 
-    private final ImageSanitizer sanitizer = new ImageSanitizer();
+    private final ImageSanitizer sanitizer = new ImageSanitizer(2);
 
     private static BufferedImage solid(int w, int h, int type) {
         BufferedImage img = new BufferedImage(w, h, type);
@@ -116,5 +116,62 @@ class ImageSanitizerTest {
     void sanitize_nullOrEmpty_returnsEmpty() {
         assertThat(sanitizer.sanitize(null)).isEmpty();
         assertThat(sanitizer.sanitize(List.of())).isEmpty();
+    }
+
+    // A landscape 40x20 source tagged as orientation 6 or 8 (both quarter-turns) must be rotated
+    // upright before re-encoding, i.e. the output is portrait 20x40. Orientation 1 (no rotation)
+    // is already covered by sanitize_validJpeg above, which keeps its dimensions.
+
+    @Test
+    void sanitize_appliesExifOrientation6_rotatesToPortrait() throws IOException {
+        String data = Base64.getEncoder().encodeToString(
+                jpegWithExifOrientation(solid(40, 20, BufferedImage.TYPE_INT_RGB), 6));
+        List<SanitizedImage> out = sanitizer.sanitize(List.of(attach("phone.jpg", "image/jpeg", data)));
+
+        assertThat(out).hasSize(1);
+        BufferedImage result = ImageIO.read(new ByteArrayInputStream(out.get(0).data()));
+        assertThat(result.getWidth()).isEqualTo(20);
+        assertThat(result.getHeight()).isEqualTo(40);
+    }
+
+    @Test
+    void sanitize_appliesExifOrientation8_rotatesToPortrait() throws IOException {
+        String data = Base64.getEncoder().encodeToString(
+                jpegWithExifOrientation(solid(40, 20, BufferedImage.TYPE_INT_RGB), 8));
+        List<SanitizedImage> out = sanitizer.sanitize(List.of(attach("phone.jpg", "image/jpeg", data)));
+
+        assertThat(out).hasSize(1);
+        BufferedImage result = ImageIO.read(new ByteArrayInputStream(out.get(0).data()));
+        assertThat(result.getWidth()).isEqualTo(20);
+        assertThat(result.getHeight()).isEqualTo(40);
+    }
+
+    // Encode a JPEG, then splice a minimal EXIF APP1 (little-endian, single IFD0 Orientation entry)
+    // in right after SOI — the canonical place EXIF lives — so the sanitizer's parser finds it.
+    private static byte[] jpegWithExifOrientation(BufferedImage img, int orientation) throws IOException {
+        ByteArrayOutputStream jpg = new ByteArrayOutputStream();
+        ImageIO.write(img, "jpeg", jpg);
+        byte[] jpeg = jpg.toByteArray();
+
+        byte[] tiff = new byte[] {
+                0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, // "II", 42, IFD0 offset = 8
+                0x01, 0x00,                                     // 1 directory entry
+                0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, // tag 0x0112, type SHORT, count 1
+                (byte) orientation, 0x00, 0x00, 0x00,           // value (SHORT in first 2 bytes, LE)
+                0x00, 0x00, 0x00, 0x00                          // next IFD offset = 0
+        };
+        int segLen = 2 + 6 + tiff.length; // length field + "Exif\0\0" + TIFF block
+
+        ByteArrayOutputStream app1 = new ByteArrayOutputStream();
+        app1.write(0xFF); app1.write(0xE1);
+        app1.write((segLen >> 8) & 0xFF); app1.write(segLen & 0xFF);
+        app1.write('E'); app1.write('x'); app1.write('i'); app1.write('f'); app1.write(0); app1.write(0);
+        app1.write(tiff, 0, tiff.length);
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write(jpeg, 0, 2);                       // SOI (FF D8)
+        out.write(app1.toByteArray());               // our EXIF APP1
+        out.write(jpeg, 2, jpeg.length - 2);         // the rest of the original JPEG
+        return out.toByteArray();
     }
 }
