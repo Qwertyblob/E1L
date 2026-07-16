@@ -174,4 +174,66 @@ class ImageSanitizerTest {
         out.write(jpeg, 2, jpeg.length - 2);         // the rest of the original JPEG
         return out.toByteArray();
     }
+
+    // ---- asymmetric-pixel orientation checks ---------------------------------------------------
+    // A solid colour can't distinguish a correct quarter-turn from a wrong rotation or a mirror.
+    // Paint four distinct quadrants (TL red, TR green, BL blue, BR yellow) and assert where each
+    // lands in the output, verifying the exact rotate+flip — this is what catches the orientation-7
+    // transverse bug (a wrong transform mapped every pixel outside the canvas → blank/cropped).
+
+    private static final int[] PALETTE = { 0xDC2828, 0x28C828, 0x2828DC, 0xE6D228 }; // RED GREEN BLUE YELLOW
+    private static final String[] NAMES = { "RED(TL)", "GREEN(TR)", "BLUE(BL)", "YELLOW(BR)" };
+
+    private static BufferedImage quadrants(int w, int h) {
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        for (int i = 0; i < 4; i++) {
+            g.setColor(new Color(PALETTE[i]));
+            int x = (i == 1 || i == 3) ? w / 2 : 0;
+            int y = (i >= 2) ? h / 2 : 0;
+            g.fillRect(x, y, w / 2, h / 2);
+        }
+        g.dispose();
+        return img;
+    }
+
+    private static String cornerName(BufferedImage img, int x, int y) {
+        int rgb = img.getRGB(x, y);
+        int r = (rgb >> 16) & 0xFF, gr = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+        int best = 0;
+        long bestD = Long.MAX_VALUE;
+        for (int i = 0; i < 4; i++) {
+            int pr = (PALETTE[i] >> 16) & 0xFF, pg = (PALETTE[i] >> 8) & 0xFF, pb = PALETTE[i] & 0xFF;
+            long d = (long) (r - pr) * (r - pr) + (long) (gr - pg) * (gr - pg) + (long) (b - pb) * (b - pb);
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        return NAMES[best];
+    }
+
+    private BufferedImage sanitizedQuadrants(int orientation) throws IOException {
+        String data = Base64.getEncoder().encodeToString(jpegWithExifOrientation(quadrants(40, 20), orientation));
+        List<SanitizedImage> out = sanitizer.sanitize(List.of(attach("q.jpg", "image/jpeg", data)));
+        assertThat(out).hasSize(1);
+        return ImageIO.read(new ByteArrayInputStream(out.get(0).data())); // 20x40 (portrait)
+    }
+
+    @Test
+    void sanitize_orientation6_rotates90Clockwise_pixelsLandCorrectly() throws IOException {
+        BufferedImage r = sanitizedQuadrants(6);
+        // 90° CW: TL→top-right, TR→bottom-right, BL→top-left, BR→bottom-left of the portrait output.
+        assertThat(cornerName(r, 16, 3)).isEqualTo("RED(TL)");
+        assertThat(cornerName(r, 16, 36)).isEqualTo("GREEN(TR)");
+        assertThat(cornerName(r, 3, 3)).isEqualTo("BLUE(BL)");
+        assertThat(cornerName(r, 3, 36)).isEqualTo("YELLOW(BR)");
+    }
+
+    @Test
+    void sanitize_orientation7_transverse_pixelsLandCorrectly() throws IOException {
+        // Regression guard: the old transform mapped every pixel off-canvas, giving a blank image.
+        BufferedImage r = sanitizedQuadrants(7);
+        assertThat(cornerName(r, 16, 36)).isEqualTo("RED(TL)");
+        assertThat(cornerName(r, 16, 3)).isEqualTo("GREEN(TR)");
+        assertThat(cornerName(r, 3, 36)).isEqualTo("BLUE(BL)");
+        assertThat(cornerName(r, 3, 3)).isEqualTo("YELLOW(BR)");
+    }
 }

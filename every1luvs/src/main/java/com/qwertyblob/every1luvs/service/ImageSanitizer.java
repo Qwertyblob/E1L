@@ -216,7 +216,7 @@ public class ImageSanitizer {
             case 4 -> { t.scale(1.0, -1.0); t.translate(0, -h); }
             case 5 -> { t.rotate(Math.PI / 2); t.scale(1.0, -1.0); }
             case 6 -> { t.translate(h, 0); t.rotate(Math.PI / 2); }
-            case 7 -> { t.scale(-1.0, 1.0); t.translate(-h, 0); t.rotate(Math.PI / 2); t.scale(1.0, -1.0); t.translate(0, -w); }
+            case 7 -> { t.translate(h, w); t.rotate(Math.PI / 2); t.scale(-1.0, 1.0); } // transverse: dest=(h-sy, w-sx)
             case 8 -> { t.translate(0, w); t.rotate(3 * Math.PI / 2); }
             default -> { return image; }
         }
