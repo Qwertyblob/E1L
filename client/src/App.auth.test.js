@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 
@@ -243,5 +243,180 @@ describe('App auth — change password', () => {
     expect(localStorage.getItem('authUser')).toBeNull();
     expect(screen.queryByRole('button', { name: 'My Profile' })).not.toBeInTheDocument();
     expect(callsTo('/api/auth/logout')).toHaveLength(0);
+  });
+});
+
+describe('App auth — sign out (D3)', () => {
+  // Authenticated render: /api/me must 200 so the app boots signed in (the default
+  // setupFetch forces 401). Routes are matched first-wins, so /api/me leads.
+  function setupAuthedFetch(extra = []) {
+    const authedRoutes = [
+      { method: 'GET', path: '/api/me', status: 200, body: { id: 1, name: 'Alice', email: 'alice@example.com', role: 'USER' } },
+      { method: 'GET', path: '/api/bookings/my', status: 200, body: [] },
+      ...extra,
+    ];
+    global.fetch = jest.fn((url, opts = {}) => {
+      const method = (opts.method || 'GET').toUpperCase();
+      const match = authedRoutes.find((r) => r.method === method && String(url).endsWith(r.path));
+      return match ? jsonResponse(match.status ?? 200, match.body ?? null)
+        : jsonResponse(404, { message: `no route for ${method} ${url}` });
+    });
+  }
+
+  async function openAccountTab() {
+    await userEvent.click(await screen.findByRole('button', { name: 'My Profile' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Account' }));
+  }
+
+  test('a confirmed logout tears down the session and returns to the landing view', async () => {
+    localStorage.setItem('authUser', JSON.stringify({ id: 1, name: 'Alice', email: 'alice@example.com', role: 'USER' }));
+    document.cookie = 'XSRF-TOKEN=tok-1';
+    setupAuthedFetch([
+      { method: 'POST', path: '/api/auth/logout', status: 200, body: { message: 'Logged out.' } },
+    ]);
+    render(<App />);
+
+    await openAccountTab();
+    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+
+    // The server-confirmed logout clears the session and drops us back to an anonymous landing.
+    await waitFor(() => expect(callsTo('/api/auth/logout')).toHaveLength(1));
+    expect(await screen.findByRole('button', { name: 'Sign In' })).toBeInTheDocument();
+    expect(localStorage.getItem('authUser')).toBeNull();
+  });
+
+  test('a failed logout keeps the session and surfaces the error', async () => {
+    localStorage.setItem('authUser', JSON.stringify({ id: 1, name: 'Alice', email: 'alice@example.com', role: 'USER' }));
+    document.cookie = 'XSRF-TOKEN=tok-1';
+    setupAuthedFetch([
+      { method: 'POST', path: '/api/auth/logout', status: 500, body: { message: 'Logout failed. Please try again.' } },
+    ]);
+    render(<App />);
+
+    await openAccountTab();
+    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+
+    await waitFor(() => expect(callsTo('/api/auth/logout')).toHaveLength(1));
+    // The httpOnly cookie couldn't be cleared, so the session must NOT look torn down:
+    // error surfaced, still signed in, stored user intact.
+    expect(await screen.findByRole('alert')).toHaveTextContent('Logout failed. Please try again.');
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+    expect(localStorage.getItem('authUser')).not.toBeNull();
+  });
+});
+
+describe('App auth — profile refresh resilience (D2)', () => {
+  test('a 5xx on /api/me does NOT sign the user out (transient failure)', async () => {
+    localStorage.setItem('authUser', JSON.stringify({ id: 1, name: 'Alice', email: 'alice@example.com', role: 'USER' }));
+    const transientRoutes = [
+      { method: 'GET', path: '/api/me', status: 500, body: { message: 'Server error' } },
+      { method: 'GET', path: '/api/bookings/my', status: 200, body: [] },
+    ];
+    global.fetch = jest.fn((url, opts = {}) => {
+      const method = (opts.method || 'GET').toUpperCase();
+      const match = transientRoutes.find((r) => r.method === method && String(url).endsWith(r.path));
+      return match ? jsonResponse(match.status, match.body) : jsonResponse(404, { message: 'no route' });
+    });
+    render(<App />);
+
+    // /api/me is hit on mount and 500s; the stored session must survive the blip.
+    await waitFor(() => expect(callsTo('/api/me').length).toBeGreaterThan(0));
+    expect(await screen.findByRole('button', { name: 'My Profile' })).toBeInTheDocument();
+    expect(localStorage.getItem('authUser')).not.toBeNull();
+  });
+
+  test('a 401 on /api/me signs the user out (session truly gone)', async () => {
+    localStorage.setItem('authUser', JSON.stringify({ id: 1, name: 'Alice', email: 'alice@example.com', role: 'USER' }));
+    setupFetch(); // default route: /api/me -> 401
+    render(<App />);
+
+    await waitFor(() => expect(callsTo('/api/me').length).toBeGreaterThan(0));
+    expect(await screen.findByRole('button', { name: 'Sign In' })).toBeInTheDocument();
+    expect(localStorage.getItem('authUser')).toBeNull();
+  });
+});
+
+describe('App auth — refresh race safety (P1 generation guard)', () => {
+  // A resolver we control, so a /api/me response can be made to land AFTER a later
+  // auth-state change — exactly the reordering the generation guard must survive.
+  function deferred() {
+    let resolve;
+    const promise = new Promise((r) => { resolve = r; });
+    return { promise, resolve };
+  }
+
+  test('a stale mount 401 arriving after login does NOT erase the new session', async () => {
+    document.cookie = 'XSRF-TOKEN=tok-1';
+    const meGate = deferred();
+    let meCalls = 0;
+    global.fetch = jest.fn((url, opts = {}) => {
+      const method = (opts.method || 'GET').toUpperCase();
+      const u = String(url);
+      if (method === 'GET' && u.endsWith('/api/me')) {
+        meCalls += 1;
+        // Hang the mount-time refresh; we resolve it with a 401 only AFTER login lands.
+        if (meCalls === 1) return meGate.promise;
+        return jsonResponse(200, { id: 1, name: 'Alice', email: 'alice@example.com', role: 'USER' });
+      }
+      if (method === 'POST' && u.endsWith('/api/auth/login')) {
+        return jsonResponse(200, { id: 1, name: 'Alice', email: 'alice@example.com', role: 'USER' });
+      }
+      if (method === 'GET' && u.endsWith('/api/bookings/my')) return jsonResponse(200, []);
+      return jsonResponse(404, { message: `no route for ${method} ${u}` });
+    });
+    render(<App />);
+
+    // Log in while the mount /api/me is still pending — this bumps the auth generation.
+    await openAuthModal();
+    await userEvent.type(within(dialog()).getByLabelText('Email'), 'alice@example.com');
+    await userEvent.type(within(dialog()).getByLabelText('Password'), 'Password1');
+    await userEvent.click(submitBtn());
+    await waitFor(() => expect(callsTo('/api/auth/login')).toHaveLength(1));
+    expect(await screen.findByRole('button', { name: 'My Profile' })).toBeInTheDocument();
+
+    // The stale mount request now resolves 401 — its generation is old, so it must be ignored.
+    await act(async () => {
+      meGate.resolve({ ok: false, status: 401, text: () => Promise.resolve(JSON.stringify({ message: 'Unauthorized' })) });
+    });
+
+    expect(screen.getByRole('button', { name: 'My Profile' })).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem('authUser'))).toMatchObject({ email: 'alice@example.com' });
+  });
+
+  test('a stale pre-logout 200 arriving after sign-out does NOT restore the session', async () => {
+    localStorage.setItem('authUser', JSON.stringify({ id: 1, name: 'Alice', email: 'alice@example.com', role: 'USER' }));
+    document.cookie = 'XSRF-TOKEN=tok-1';
+    const meGate = deferred();
+    let meCalls = 0;
+    global.fetch = jest.fn((url, opts = {}) => {
+      const method = (opts.method || 'GET').toUpperCase();
+      const u = String(url);
+      if (method === 'GET' && u.endsWith('/api/me')) {
+        meCalls += 1;
+        // Hang the mount refresh; resolve it 200 only AFTER logout to simulate reordering.
+        if (meCalls === 1) return meGate.promise;
+        return jsonResponse(200, { id: 1, name: 'Alice', email: 'alice@example.com', role: 'USER' });
+      }
+      if (method === 'GET' && u.endsWith('/api/bookings/my')) return jsonResponse(200, []);
+      if (method === 'POST' && u.endsWith('/api/auth/logout')) return jsonResponse(200, { message: 'Logged out.' });
+      return jsonResponse(404, { message: `no route for ${method} ${u}` });
+    });
+    render(<App />);
+
+    // Signed in from localStorage; sign out (clearSession bumps the generation) while the
+    // mount /api/me is still pending.
+    await userEvent.click(await screen.findByRole('button', { name: 'My Profile' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Account' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    await waitFor(() => expect(callsTo('/api/auth/logout')).toHaveLength(1));
+    expect(await screen.findByRole('button', { name: 'Sign In' })).toBeInTheDocument();
+
+    // The stale mount 200 now resolves — its generation is old, so it must NOT resurrect the session.
+    await act(async () => {
+      meGate.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify({ id: 1, name: 'Alice', email: 'alice@example.com', role: 'USER' })) });
+    });
+
+    expect(screen.getByRole('button', { name: 'Sign In' })).toBeInTheDocument();
+    expect(localStorage.getItem('authUser')).toBeNull();
   });
 });

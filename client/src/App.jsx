@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 import BookingModal from './BookingModal';
 import LandingView from './LandingView';
@@ -76,6 +76,18 @@ function buildRequestHeaders(options) {
   return headers;
 }
 
+// Error thrown by parseApiResponse for any non-2xx response. Carries the HTTP status
+// so callers can tell an auth rejection (401/403 — cookie gone/invalid) apart from a
+// transient failure (5xx, or a fetch that never yields a response). refreshProfile
+// relies on this to avoid signing a user out over a network blip.
+class ApiError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 async function parseApiResponse(response) {
   const responseText = await response.text();
   let data = null;
@@ -86,7 +98,10 @@ async function parseApiResponse(response) {
   }
 
   if (!response.ok) {
-    throw new Error(data?.message || data?.detail || `Request failed with status ${response.status}.`);
+    throw new ApiError(
+      data?.message || data?.detail || `Request failed with status ${response.status}.`,
+      response.status,
+    );
   }
 
   return data;
@@ -151,6 +166,7 @@ function App() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [deleteAccountMessage, setDeleteAccountMessage] = useState('');
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [signOutMessage, setSignOutMessage] = useState('');
 
   const [bookingActionMessage, setBookingActionMessage] = useState('');
   const [bookingActionMessageType, setBookingActionMessageType] = useState('error');
@@ -214,10 +230,17 @@ function App() {
     resetSlotBuilder,
   } = useSlotBuilder({ apiRequest, onSlotsCreated: loadAdminSlots });
 
+  // Monotonic counter bumped on every auth-state transition (saveSession / clearSession).
+  // refreshProfile snapshots it before its request and discards any result whose generation
+  // is no longer current, so a slow or reordered GET /api/me can't clobber a newer auth state
+  // (a stale 401 erasing a fresh login, or a stale 200 resurrecting a session after logout).
+  const authGenerationRef = useRef(0);
+
   // Local-only teardown of client auth state. Used both by an explicit sign-out and
   // when the server says we're no longer authenticated (GET /api/me 401). It does NOT
   // call the logout endpoint — see signOut for that.
   const clearSession = useCallback(() => {
+    authGenerationRef.current += 1;
     localStorage.removeItem('authUser');
     setUser(null);
     setAdminUsers([]);
@@ -229,6 +252,7 @@ function App() {
     setChangePasswordMessage('');
     setDeleteAccountMessage('');
     setIsDeletingAccount(false);
+    setSignOutMessage('');
     setBookingActionMessage('');
     setMyBookings([]);
     setMyBookingsError('');
@@ -248,17 +272,24 @@ function App() {
     setMode('login');
   }, [resetSlotBuilder]);
 
-  // Explicit sign-out: tell the server to clear the httpOnly cookie, then tear down
-  // local state. Best-effort — even if the request fails (e.g. cookie already gone)
-  // we still clear the client.
-  const signOut = useCallback(() => {
-    apiRequest('/api/auth/logout', { method: 'POST' }).catch(() => {});
-    clearSession();
+  // Explicit sign-out: the httpOnly auth cookie can only be cleared by the server, so we
+  // wait for the logout call to succeed before tearing down local state. If it fails
+  // (network/server error), keep the session — showing a signed-out UI while the cookie
+  // is still live would be a lie — and surface the error so the user can retry.
+  const signOut = useCallback(async () => {
+    setSignOutMessage('');
+    try {
+      await apiRequest('/api/auth/logout', { method: 'POST' });
+      clearSession();
+    } catch (error) {
+      setSignOutMessage(error.message || 'Could not sign out. Please try again.');
+    }
   }, [apiRequest, clearSession]);
 
   // Login/verify now return only the user object (the JWT is set as an httpOnly cookie
   // by the server and never reaches JS).
   const saveSession = useCallback((authUser) => {
+    authGenerationRef.current += 1;
     localStorage.setItem('authUser', JSON.stringify(authUser));
     setUser(authUser);
     setPendingVerificationEmail('');
@@ -266,13 +297,26 @@ function App() {
   }, []);
 
   const refreshProfile = useCallback(async () => {
+    // Snapshot the auth generation before the request. If a login (saveSession) or a teardown
+    // (clearSession) bumps it while GET /api/me is in flight, this result is stale and must be
+    // dropped for BOTH outcomes — otherwise a late 401 could erase a fresh login, or a late 200
+    // could resurrect a session after logout.
+    const generation = authGenerationRef.current;
     try {
       const profile = await apiRequest('/api/me');
+      if (generation !== authGenerationRef.current) return;
       localStorage.setItem('authUser', JSON.stringify(profile));
       setUser(profile);
-    } catch {
-      // 401 (anonymous or expired cookie) — make sure no stale user lingers.
-      clearSession();
+    } catch (error) {
+      if (generation !== authGenerationRef.current) return;
+      // Only an explicit auth rejection (401 anonymous/expired cookie, 403 forbidden) means
+      // the session is truly gone — tear it down so no stale user lingers. A transient
+      // failure (5xx, or a fetch that never reached the server, which has no .status) is
+      // NOT a sign-out signal: keep whatever session we have so a blip doesn't log the user
+      // out mid-visit; the next refresh recovers.
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        clearSession();
+      }
     }
   }, [apiRequest, clearSession]);
 
@@ -760,6 +804,7 @@ function App() {
         setConfirmCancelId={setConfirmCancelId}
         refreshProfile={refreshProfile}
         signOut={signOut}
+        signOutMessage={signOutMessage}
         handleChangePassword={handleChangePassword}
         updateChangePasswordField={updateChangePasswordField}
         changePasswordForm={changePasswordForm}

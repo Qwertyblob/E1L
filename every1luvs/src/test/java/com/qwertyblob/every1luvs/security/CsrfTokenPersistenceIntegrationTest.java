@@ -129,6 +129,33 @@ class CsrfTokenPersistenceIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void logoutWithoutAuthCookie_stillSucceeds_whenCsrfTokenPresent() throws Exception {
+        CookieJar jar = new CookieJar();
+        // Anonymous GET to a permitAll endpoint seeds an XSRF-TOKEN without ever authenticating,
+        // mirroring the SPA's first request.
+        send(jar, get("/api/slots/available")).andExpect(status().isOk());
+        assertThat(jar.value("XSRF-TOKEN")).isNotBlank();
+        assertThat(jar.value("auth_token")).as("no session yet").isNull();
+
+        // permitAll: a caller with an expired/absent auth cookie can still hit logout and clear
+        // its cookie. Before D3 this fell under anyRequest().authenticated() and returned 401.
+        send(jar, post("/api/auth/logout")
+                .header("X-XSRF-TOKEN", jar.value("XSRF-TOKEN")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void logoutWithoutCsrfHeader_isForbidden() throws Exception {
+        CookieJar jar = new CookieJar();
+        send(jar, get("/api/slots/available")).andExpect(status().isOk());
+
+        // CSRF stays enforced on logout (it is deliberately NOT in ignoringRequestMatchers), so a
+        // cross-site page holding no XSRF-TOKEN header can't force-logout a signed-in user.
+        send(jar, post("/api/auth/logout"))
+                .andExpect(status().isForbidden());
+    }
+
     private void login(CookieJar jar) throws Exception {
         send(jar, post("/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
