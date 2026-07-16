@@ -32,7 +32,12 @@ function trapTab(event, node, items) {
 export function useFocusTrap(active, onClose) {
   const ref = useRef(null);
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  // Keep the latest onClose without re-running the trap effect. Sync it in an effect
+  // (not during render) so we don't mutate a ref mid-render; the value is only read
+  // later, inside the Escape handler and cleanup, both of which run after commit.
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!active) return undefined;

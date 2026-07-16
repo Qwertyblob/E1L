@@ -5,7 +5,7 @@ import { NAIL_ART, NAIL_SERVICES, REMOVAL } from './services';
 import { useFocusTrap } from './useFocusTrap';
 
 // Relative base so requests go through the dev-server proxy (same-origin). See App.jsx.
-const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 // Inspo-image limits. Kept in step with BookingService.validateAttachments and the nginx
 // client_max_body_size so the client rejects oversized sets before the server/edge does.
