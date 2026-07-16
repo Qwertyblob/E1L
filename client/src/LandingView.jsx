@@ -293,7 +293,7 @@ function LandingView({
       <section className="cta-banner">
         <p className="section-eyebrow" style={{ textAlign: 'center' }}>Ready?</p>
         <h2 className="cta-banner-heading">Book your next set</h2>
-        <p className="cta-banner-sub">Secure your slot in under 2 minutes. A S$30 deposit is required to confirm.</p>
+        <p className="cta-banner-sub">Secure your slot in under 2 minutes.</p>
         <div className="cta-banner-buttons">
           <button className="outline-button" onClick={onBook} type="button">Book an Appointment</button>
           <button className="outline-button" type="button">Model Set Interest</button>

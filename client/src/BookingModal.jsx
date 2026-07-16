@@ -15,14 +15,13 @@ const MAX_TOTAL_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 
 const TERMS = [
   'All bookings must be made through our website unless otherwise stated.',
-  'A S$30 deposit secures your slot. Unpaid deposits after 24 hours will result in automatic cancellation.',
-  'Cancellations or reschedules must be made at least 72 hours in advance, or the deposit will be forfeited.',
+  'Cancellations or reschedules must be made at least 72 hours in advance.',
   'Kindly share your inspo pictures or links when booking (or send them to us via DM) — this gives us time to ensure we have the necessary supplies for your set.',
   'Please check your manicure before leaving. Touch-ups are offered up to 7 days after your appointment date.',
   'Arriving more than 20 minutes late incurs a S$10 late fee and may mean your full set cannot be completed.',
   'We’re not liable for allergic reactions or product sensitivity not disclosed beforehand. We may decline or modify a service if nails show signs of infection/damage.',
   'As our studio space is limited, we kindly ask that clients attend their appointment alone where possible. Please let us know in advance if you’ll be bringing a guest.',
-  'Prices are subject to change without prior notice. Any price changes will not affect deposits already paid for confirmed bookings.'
+  'Prices are subject to change without prior notice.'
 ];
 
 const STEP_LABELS = ['Service', 'Add-ons', 'Date & Time', 'Personal Details', 'T&C'];
@@ -95,7 +94,7 @@ function formatAddOns(nailArt, removal) {
 }
 
 // Shared service/add-ons/date/time/total recap, used by the details step and the success screen.
-// `className` and `children` let each caller tweak styling and append a deposit note without
+// `className` and `children` let each caller tweak styling and append an extra note without
 // duplicating the rows. The total is an estimate, so it is labelled "Total estimate".
 function BookingSummary({ service, addOns, date, time, total, className = 'bk-summary', children }) {
   return (
@@ -298,7 +297,7 @@ function readImageFile(file) {
 
 // Step 3 — Personal Details
 function DetailsStep({
-  service, addOns, date, time, total, deposit, form, updateForm,
+  service, addOns, date, time, total, form, updateForm,
   attachments, addFiles, removeAttachment, attachmentError,
 }) {
   function onFileInput(e) {
@@ -309,9 +308,6 @@ function DetailsStep({
   return (
     <>
       <BookingSummary service={service} addOns={addOns} date={date} time={time} total={total} />
-      <div className="bk-summary-deposit">
-        <span>Deposit due</span><span>S${deposit}</span>
-      </div>
       <label className="bk-field">
         <span>Full Name *</span>
         <input name="fullName" onChange={updateForm} placeholder="Your name" type="text" value={form.fullName} />
@@ -358,7 +354,6 @@ function DetailsStep({
         )}
         {attachmentError && <p className="bk-attach-error">{attachmentError}</p>}
       </div>
-      <p className="bk-deposit-note">A deposit of S${deposit} is required to confirm your slot. Payment details will be shared after booking.</p>
     </>
   );
 }
@@ -376,7 +371,7 @@ function maskEmail(email) {
   return `${visible}${stars}@${domain}`;
 }
 
-function SuccessView({ formEmail, service, addOns, date, time, total, deposit, onClose }) {
+function SuccessView({ formEmail, service, addOns, date, time, total, onClose }) {
   return (
     <div className="bk-success">
       <div className="bk-success-check"><CheckIcon /></div>
@@ -398,9 +393,7 @@ function SuccessView({ formEmail, service, addOns, date, time, total, deposit, o
         date={date}
         time={time}
         total={total}
-      >
-        <p className="bk-summary-note">Deposit of S${deposit} required to confirm slot.</p>
-      </BookingSummary>
+      />
       <button className="bk-btn bk-btn--primary bk-btn--full" onClick={onClose} type="button">Done</button>
     </div>
   );
@@ -520,7 +513,6 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
 
   const total = computeTotal(service, nailArt, removal);
   const addOnsLabel = formatAddOns(nailArt, removal);
-  const deposit = 30;
 
   const canContinue = (() => {
     if (step === 0) return !!service;
@@ -576,7 +568,6 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
         slotId,
         form,
         total,
-        deposit,
         // Send selection IDs; the server recomputes the canonical names + price from these.
         serviceId: service?.id || null,
         nailArtId: nailArt,
@@ -605,7 +596,6 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
             date={date}
             time={time}
             total={total}
-            deposit={deposit}
             onClose={onClose}
           />
         ) : (
@@ -650,7 +640,6 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
                   date={date}
                   time={time}
                   total={total}
-                  deposit={deposit}
                   form={form}
                   updateForm={updateForm}
                   attachments={attachments}

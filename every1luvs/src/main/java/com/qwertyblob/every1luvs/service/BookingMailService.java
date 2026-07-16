@@ -41,10 +41,6 @@ public class BookingMailService {
     private static final DateTimeFormatter SLOT_TIME_FORMAT =
             DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH).withZone(ZoneOffset.UTC);
 
-    // Flat deposit that secures a slot, mirrored from the client (BookingModal). Applied to the
-    // final bill; the recomputed booking total is the estimate.
-    private static final int DEPOSIT_SGD = 30;
-
     // "none" add-on display names (from services.json) — skip these lines so a plain
     // booking doesn't show empty add-ons.
     private static final String NO_NAIL_ART = "No design (plain colour only)";
@@ -343,7 +339,6 @@ public class BookingMailService {
         if (isMeaningful(booking.removal(), NO_REMOVAL)) {
             body.append("Removal: ").append(booking.removal()).append('\n');
         }
-        body.append("Deposit Paid: S$").append(DEPOSIT_SGD).append(" (applied to your final bill)\n");
         body.append("Total Estimate: S$").append(booking.totalPrice()).append("\n\n");
         body.append("We'll send you our studio address in a separate email, 2 days before your appointment.\n\n");
         body.append("Need to reschedule or cancel? Just let us know at least 72 hours in advance.\n\n");

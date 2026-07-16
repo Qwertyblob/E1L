@@ -162,7 +162,6 @@ describe('BookingModal — confirm flow', () => {
       expect.objectContaining({
         slotId: 102, // the 10:00 slot
         total: 58,
-        deposit: 30,
         serviceId: 'classic',
         nailArtId: 'none',
         removalId: 'none',

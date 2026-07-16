@@ -285,15 +285,6 @@
 .bk-summary > div { display: flex; justify-content: space-between; gap: 16px; }
 .bk-summary > div span:first-child { color: var(--muted); font-size: 0.85rem; }
 .bk-summary > div span:last-child { font-size: 0.88rem; font-weight: 600; text-align: right; }
-.bk-summary-deposit {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-  margin: -6px 0 18px;
-  padding: 0 20px;
-}
-.bk-summary-deposit span:first-child { color: var(--muted); font-size: 0.85rem; }
-.bk-summary-deposit span:last-child { font-family: var(--serif-font); font-weight: 700; }
 .bk-field { color: var(--charcoal); display: grid; gap: 6px; margin-bottom: 14px; }
 .bk-field > span { font-size: 0.85rem; font-weight: 700; }
 .bk-field input, .bk-field textarea {
@@ -308,7 +299,6 @@
 }
 .bk-field input { min-height: 46px; }
 .bk-field input:focus, .bk-field textarea:focus { border-color: var(--charcoal); outline: none; }
-.bk-deposit-note { color: var(--muted); font-size: 0.82rem; line-height: 1.55; margin: 4px 0 0; }
 .bk-signin-note { color: var(--charcoal); font-size: 0.84rem; font-weight: 600; margin: 12px 0 0; }
 .bk-booking-error {
   background: rgba(216, 82, 74, 0.12);
