@@ -1,6 +1,5 @@
 package com.qwertyblob.every1luvs.service;
 
-import com.qwertyblob.every1luvs.dto.BookingAttachment;
 import com.qwertyblob.every1luvs.dto.BookingResponse;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
@@ -17,7 +16,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 
@@ -236,7 +234,7 @@ public class BookingMailService {
      * but are never required, and are not stored anywhere else.
      */
     @Async
-    public void sendAdminBookingNotification(BookingResponse booking, List<BookingAttachment> attachments) {
+    public void sendAdminBookingNotification(BookingResponse booking, List<SanitizedImage> images) {
         if (booking == null) {
             return;
         }
@@ -247,33 +245,19 @@ public class BookingMailService {
             helper.setFrom(fromAddress);
             helper.setTo(adminAddress);
 
-            int attached = 0;
-            List<BookingAttachment> images = attachments == null ? List.of() : attachments;
-            for (int i = 0; i < images.size(); i++) {
-                BookingAttachment attachment = images.get(i);
-                if (attachment == null || attachment.data() == null || attachment.data().isBlank()) {
-                    continue;
-                }
-                byte[] bytes;
-                try {
-                    bytes = Base64.getDecoder().decode(attachment.data());
-                } catch (IllegalArgumentException e) {
-                    logger.warn("Skipping malformed inspo image on booking #{}", booking.id());
-                    continue;
-                }
-                String filename = safeFilename(attachment.filename(), i);
-                String contentType = (attachment.contentType() == null || attachment.contentType().isBlank())
-                        ? "application/octet-stream" : attachment.contentType();
-                helper.addAttachment(filename, new ByteArrayResource(bytes), contentType);
-                attached++;
+            List<SanitizedImage> attached = images == null ? List.of() : images;
+            for (SanitizedImage image : attached) {
+                // Bytes, media type and filename are all server-generated (ImageSanitizer), so there
+                // is nothing attacker-controlled left to validate here — attach them as-is.
+                helper.addAttachment(image.filename(), new ByteArrayResource(image.data()), image.contentType());
             }
 
             helper.setSubject("New booking #" + booking.id() + " — " + safe(booking.userName()));
-            helper.setText(buildAdminBody(booking, attached));
+            helper.setText(buildAdminBody(booking, attached.size()));
 
             mailSender.send(message);
             logger.info("Admin booking notification sent to {} with {} image(s) (booking #{})",
-                    adminAddress, attached, booking.id());
+                    adminAddress, attached.size(), booking.id());
         } catch (MessagingException e) {
             // Swallow: the customer's booking already succeeded regardless of this notification.
             logger.warn("Failed to send admin booking notification for booking #{}: {}",
@@ -312,16 +296,6 @@ public class BookingMailService {
                 (booking.notes() == null || booking.notes().isBlank()) ? "—" : booking.notes()).append('\n');
         body.append("Inspo photos attached: ").append(imageCount).append('\n');
         return body.toString();
-    }
-
-    // Attachment filenames come from the client; fall back to a safe default and strip any path
-    // separators so a crafted name can't influence where the mail library writes.
-    private String safeFilename(String filename, int index) {
-        if (filename == null || filename.isBlank()) {
-            return "inspo-" + (index + 1) + ".jpg";
-        }
-        String cleaned = filename.replaceAll("[\\\\/\\r\\n]", "_").trim();
-        return cleaned.isEmpty() ? ("inspo-" + (index + 1) + ".jpg") : cleaned;
     }
 
     private String safe(String value) {

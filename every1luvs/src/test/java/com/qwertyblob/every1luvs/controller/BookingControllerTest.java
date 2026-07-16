@@ -6,7 +6,9 @@ import com.qwertyblob.every1luvs.dto.PageResponse;
 import com.qwertyblob.every1luvs.security.ClientIpResolver;
 import com.qwertyblob.every1luvs.service.BookingMailService;
 import com.qwertyblob.every1luvs.service.BookingService;
+import com.qwertyblob.every1luvs.service.ImageSanitizer;
 import com.qwertyblob.every1luvs.service.ReviewRequestService;
+import com.qwertyblob.every1luvs.service.SanitizedImage;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,6 +28,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -37,6 +40,7 @@ class BookingControllerTest {
     @Mock BookingService bookingService;
     @Mock BookingMailService bookingMailService;
     @Mock ReviewRequestService reviewRequestService;
+    @Mock ImageSanitizer imageSanitizer;
 
     // Default controller trusts only the peer address (trustForwardedFor=false); the
     // trust-enabled variant is constructed inline in its own test.
@@ -45,7 +49,8 @@ class BookingControllerTest {
     @BeforeEach
     void setUp() {
         bookingController = new BookingController(
-                bookingService, bookingMailService, reviewRequestService, new ClientIpResolver(false));
+                bookingService, bookingMailService, reviewRequestService, imageSanitizer,
+                new ClientIpResolver(false));
     }
 
     private static BookingResponse booking(Long id, String status) {
@@ -65,12 +70,16 @@ class BookingControllerTest {
         CreateBookingRequest request = new CreateBookingRequest(10L);
         BookingResponse created = booking(2L, "BOOKED");
         when(bookingService.createBooking(request, null, "203.0.113.5")).thenReturn(created);
+        List<SanitizedImage> sanitized = List.of(new SanitizedImage("inspo-1.jpg", "image/jpeg", new byte[]{1}));
+        when(imageSanitizer.sanitize(request.attachments())).thenReturn(sanitized);
 
         ResponseEntity<BookingResponse> response = bookingController.createGuestBooking(request, httpRequest);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(response.getBody()).isEqualTo(created);
         verify(bookingMailService).sendBookingConfirmation(created);
+        // The admin notification gets the SANITIZED images, never the raw client attachments.
+        verify(bookingMailService).sendAdminBookingNotification(eq(created), eq(sanitized));
     }
 
     @Test
@@ -82,19 +91,23 @@ class BookingControllerTest {
         CreateBookingRequest request = new CreateBookingRequest(10L);
         BookingResponse created = booking(1L, "BOOKED");
         when(bookingService.createBooking(request, "alice@example.com", "198.51.100.7")).thenReturn(created);
+        List<SanitizedImage> sanitized = List.of(new SanitizedImage("inspo-1.png", "image/png", new byte[]{2}));
+        when(imageSanitizer.sanitize(request.attachments())).thenReturn(sanitized);
 
         ResponseEntity<BookingResponse> response = bookingController.createMyBooking(request, auth, httpRequest);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(response.getBody()).isEqualTo(created);
         verify(bookingMailService).sendBookingConfirmation(created);
+        verify(bookingMailService).sendAdminBookingNotification(eq(created), eq(sanitized));
     }
 
     @Test
     void createGuestBooking_trustsForwardedForWhenEnabled_returns201() {
         // With trust enabled (behind a trusted proxy), the first X-Forwarded-For hop is used.
         BookingController trustingController =
-                new BookingController(bookingService, bookingMailService, reviewRequestService, new ClientIpResolver(true));
+                new BookingController(bookingService, bookingMailService, reviewRequestService, imageSanitizer,
+                        new ClientIpResolver(true));
         HttpServletRequest httpRequest = mock(HttpServletRequest.class);
         when(httpRequest.getHeader("X-Forwarded-For")).thenReturn("198.51.100.7, 10.0.0.1");
         CreateBookingRequest request = new CreateBookingRequest(10L);

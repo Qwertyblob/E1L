@@ -6,7 +6,9 @@ import com.qwertyblob.every1luvs.dto.PageResponse;
 import com.qwertyblob.every1luvs.security.ClientIpResolver;
 import com.qwertyblob.every1luvs.service.BookingMailService;
 import com.qwertyblob.every1luvs.service.BookingService;
+import com.qwertyblob.every1luvs.service.ImageSanitizer;
 import com.qwertyblob.every1luvs.service.ReviewRequestService;
+import com.qwertyblob.every1luvs.service.SanitizedImage;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -30,17 +32,20 @@ public class BookingController {
     private final BookingService bookingService;
     private final BookingMailService bookingMailService;
     private final ReviewRequestService reviewRequestService;
+    private final ImageSanitizer imageSanitizer;
     private final ClientIpResolver clientIpResolver;
 
     public BookingController(
             BookingService bookingService,
             BookingMailService bookingMailService,
             ReviewRequestService reviewRequestService,
+            ImageSanitizer imageSanitizer,
             ClientIpResolver clientIpResolver
     ) {
         this.bookingService = bookingService;
         this.bookingMailService = bookingMailService;
         this.reviewRequestService = reviewRequestService;
+        this.imageSanitizer = imageSanitizer;
         this.clientIpResolver = clientIpResolver;
     }
 
@@ -54,8 +59,10 @@ public class BookingController {
         BookingResponse created = bookingService.createBooking(request, null, clientIp(httpRequest));
         // Post-commit (createBooking has returned) + @Async, so a mail failure can't fail the booking.
         bookingMailService.sendBookingConfirmation(created);
-        // Send the admin a full copy of every booking (all details + any inspo photos), best-effort.
-        bookingMailService.sendAdminBookingNotification(created, request.attachments());
+        // Re-encode client images into server-owned bytes before they ever reach the inbox, then send
+        // the admin a full copy of every booking (all details + sanitized inspo photos), best-effort.
+        List<SanitizedImage> images = imageSanitizer.sanitize(request.attachments());
+        bookingMailService.sendAdminBookingNotification(created, images);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -70,8 +77,10 @@ public class BookingController {
         BookingResponse created = bookingService.createBooking(request, authentication.getName(), clientIp(httpRequest));
         // Post-commit (createBooking has returned) + @Async, so a mail failure can't fail the booking.
         bookingMailService.sendBookingConfirmation(created);
-        // Send the admin a full copy of every booking (all details + any inspo photos), best-effort.
-        bookingMailService.sendAdminBookingNotification(created, request.attachments());
+        // Re-encode client images into server-owned bytes before they ever reach the inbox, then send
+        // the admin a full copy of every booking (all details + sanitized inspo photos), best-effort.
+        List<SanitizedImage> images = imageSanitizer.sanitize(request.attachments());
+        bookingMailService.sendAdminBookingNotification(created, images);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
