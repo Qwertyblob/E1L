@@ -29,6 +29,17 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Non-mutating preflight (used by setup-backup-cron.sh as the install-time test): verify the env
+# and tools the detector needs, then exit — it NEVER scans logs or POSTs a dispatch.
+if [[ "${1:-}" == "--check" ]]; then
+  rc=0
+  if [[ -f "$REPO_ROOT/.env" ]]; then set -a; . "$REPO_ROOT/.env"; set +a; else echo "MISSING $REPO_ROOT/.env" >&2; rc=1; fi
+  for c in docker curl python3 git shasum awk; do command -v "$c" >/dev/null 2>&1 || { echo "MISSING command: $c" >&2; rc=1; }; done
+  for v in GITHUB_REPO LOG_MONITOR_TOKEN; do [[ -n "${!v:-}" ]] || { echo "MISSING env: $v" >&2; rc=1; }; done
+  [[ $rc -eq 0 ]] && echo "log-monitor --check: OK"
+  exit $rc
+fi
+
 # Load .env so cron (which has a bare environment) sees the config the rest of the stack uses.
 if [[ -f "$REPO_ROOT/.env" ]]; then
   set -a; . "$REPO_ROOT/.env"; set +a
