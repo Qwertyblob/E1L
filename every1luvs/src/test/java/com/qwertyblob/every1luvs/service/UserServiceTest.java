@@ -5,6 +5,7 @@ import com.qwertyblob.every1luvs.entity.BookingEntity;
 import com.qwertyblob.every1luvs.entity.SlotEntity;
 import com.qwertyblob.every1luvs.entity.UserEntity;
 import com.qwertyblob.every1luvs.repository.BookingRepository;
+import com.qwertyblob.every1luvs.repository.SchedulingLockRepository;
 import com.qwertyblob.every1luvs.repository.SlotRepository;
 import com.qwertyblob.every1luvs.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,7 @@ class UserServiceTest {
     @Mock UserRepository userRepository;
     @Mock BookingRepository bookingRepository;
     @Mock SlotRepository slotRepository;
+    @Mock SchedulingLockRepository schedulingLockRepository;
 
     @InjectMocks UserService userService;
 

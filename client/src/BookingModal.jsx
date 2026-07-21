@@ -410,6 +410,10 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     notes: '',
   });
   const [availableSlots, setAvailableSlots] = useState([]);
+  // The quote (service + add-ons) that `availableSlots` was actually loaded for. Continuation past
+  // the date/time step is gated on this matching the current quote, so a customer can't proceed on
+  // availability computed for a previous service/add-on selection while a newer fetch is in flight.
+  const [loadedQuoteKey, setLoadedQuoteKey] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [bookingError, setBookingError] = useState('');
   const [attachments, setAttachments] = useState([]);
@@ -469,6 +473,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     // only ever goes null -> a real id, so there's no stale list to clear.)
     if (!serviceId) return undefined;
     const seq = (availabilitySeq.current += 1);
+    const quoteKey = `${serviceId}|${nailArt}|${removal}`;
     const controller = new AbortController();
     const params = new URLSearchParams({ serviceId });
     if (nailArt) params.set('nailArtId', nailArt);
@@ -476,10 +481,14 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     fetch(`${API_BASE_URL}/api/slots/available?${params.toString()}`, { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
-        if (seq === availabilitySeq.current) setAvailableSlots(Array.isArray(data) ? data : []);
+        if (seq !== availabilitySeq.current) return;
+        setAvailableSlots(Array.isArray(data) ? data : []);
+        setLoadedQuoteKey(quoteKey);
       })
       .catch((err) => {
-        if (err.name !== 'AbortError' && seq === availabilitySeq.current) setAvailableSlots([]);
+        if (err.name === 'AbortError' || seq !== availabilitySeq.current) return;
+        setAvailableSlots([]);
+        setLoadedQuoteKey(quoteKey);
       });
     return () => controller.abort();
   }, [serviceId, nailArt, removal]);
@@ -520,9 +529,16 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   const addOnsLabel = formatAddOns(nailArt, removal);
   const deposit = 30;
 
+  const currentQuoteKey = serviceId ? `${serviceId}|${nailArt}|${removal}` : null;
   const canContinue = (() => {
     if (step === 0) return !!service;
-    if (step === 2) return !!date && !!time;
+    // Gate on availability having loaded for the CURRENT quote, and on the picked time still being
+    // offered for it — so a stale selection from a previous service/add-on can't be carried forward.
+    if (step === 2) {
+      return !!date && !!time
+        && loadedQuoteKey === currentQuoteKey
+        && availableTimes.includes(time);
+    }
     if (step === 3) return form.fullName.trim() && form.email.trim();
     if (step === 4) return agreed;
     return true;

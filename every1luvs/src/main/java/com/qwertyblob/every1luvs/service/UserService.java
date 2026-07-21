@@ -4,6 +4,7 @@ import com.qwertyblob.every1luvs.dto.UserResponse;
 import com.qwertyblob.every1luvs.entity.BookingEntity;
 import com.qwertyblob.every1luvs.entity.UserEntity;
 import com.qwertyblob.every1luvs.repository.BookingRepository;
+import com.qwertyblob.every1luvs.repository.SchedulingLockRepository;
 import com.qwertyblob.every1luvs.repository.SlotRepository;
 import com.qwertyblob.every1luvs.repository.UserRepository;
 import org.springframework.data.domain.Page;
@@ -22,12 +23,14 @@ public class UserService {
     private final UserRepository userRepository;
     private final BookingRepository bookingRepository;
     private final SlotRepository slotRepository;
+    private final SchedulingLockRepository schedulingLockRepository;
 
     public UserService(UserRepository userRepository, BookingRepository bookingRepository,
-                       SlotRepository slotRepository) {
+                       SlotRepository slotRepository, SchedulingLockRepository schedulingLockRepository) {
         this.userRepository = userRepository;
         this.bookingRepository = bookingRepository;
         this.slotRepository = slotRepository;
+        this.schedulingLockRepository = schedulingLockRepository;
     }
 
     // Look up the authenticated user's own profile. Treats a missing row as 401 (the account
@@ -51,6 +54,15 @@ public class UserService {
     public void deleteAccount(String email) {
         UserEntity user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User no longer exists."));
+
+        // Serialize against booking confirmation in the same fixed order it uses (scheduling lock,
+        // then the user row). Without this, a confirmation can commit between our booking snapshot
+        // and the user delete; the FK cascade would then remove that new booking without releasing
+        // its picked-slot seat. Under the lock, a racing confirmation either commits fully before us
+        // (its booking is in our snapshot, so its seat is released) or blocks until we delete the
+        // user and then fails to find them.
+        schedulingLockRepository.acquire();
+        userRepository.findByIdForUpdate(user.getId());
 
         List<BookingEntity> bookings = bookingRepository.findByUserId(user.getId());
 

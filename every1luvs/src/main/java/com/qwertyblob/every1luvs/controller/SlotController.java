@@ -5,7 +5,10 @@ import com.qwertyblob.every1luvs.dto.CreateSlotRequest;
 import com.qwertyblob.every1luvs.dto.PageResponse;
 import com.qwertyblob.every1luvs.dto.SlotResponse;
 import com.qwertyblob.every1luvs.dto.UpdateSlotRequest;
+import com.qwertyblob.every1luvs.security.ClientIpResolver;
+import com.qwertyblob.every1luvs.service.RateLimiterService;
 import com.qwertyblob.every1luvs.service.SlotService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -30,10 +33,20 @@ public class SlotController {
 
     static final int MAX_ARCHIVED_PAGE_SIZE = 100;
 
-    private final SlotService slotService;
+    // The availability endpoint is public + unauthenticated and runs a sweep over the live schedule,
+    // so bound how often one client IP can call it (defence-in-depth against algorithmic abuse).
+    private static final int MAX_AVAILABILITY_CHECKS_PER_IP = 60;
+    private static final long AVAILABILITY_WINDOW_MS = 60 * 1_000L;
 
-    public SlotController(SlotService slotService) {
+    private final SlotService slotService;
+    private final RateLimiterService rateLimiter;
+    private final ClientIpResolver clientIpResolver;
+
+    public SlotController(SlotService slotService, RateLimiterService rateLimiter,
+                          ClientIpResolver clientIpResolver) {
         this.slotService = slotService;
+        this.rateLimiter = rateLimiter;
+        this.clientIpResolver = clientIpResolver;
     }
 
     @GetMapping("/slots")
@@ -62,7 +75,11 @@ public class SlotController {
     public List<SlotResponse> listAvailableSlots(
             @RequestParam(required = false) String serviceId,
             @RequestParam(required = false) String nailArtId,
-            @RequestParam(required = false) String removalId) {
+            @RequestParam(required = false) String removalId,
+            HttpServletRequest request) {
+        rateLimiter.check("availability:ip:" + clientIpResolver.resolve(request),
+                MAX_AVAILABILITY_CHECKS_PER_IP, AVAILABILITY_WINDOW_MS,
+                "Too many availability checks. Please slow down and try again shortly.");
         return slotService.listAvailableSlots(serviceId, nailArtId, removalId);
     }
 

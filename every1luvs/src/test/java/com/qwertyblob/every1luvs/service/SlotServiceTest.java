@@ -28,6 +28,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -414,7 +415,7 @@ class SlotServiceTest {
         SlotEntity busy = slotAt(1L, busyStart, busyEnd, 1);
         SlotEntity free = slotAt(2L, Instant.parse("2099-06-15T11:00:00Z"),
                 Instant.parse("2099-06-15T12:00:00Z"), 1);
-        when(slotRepository.findBookableCandidates(BookingWindow.earliestBookableStartUtc()))
+        when(slotRepository.findBookableCandidates(eq(BookingWindow.earliestBookableStartUtc()), any()))
                 .thenReturn(List.of(busy, free));
         when(slotRepository.findActiveSlotsOverlapping(any(), any())).thenReturn(List.of(busy, free));
         when(bookingRepository.findActiveOccupiedIntervalsBefore(any()))

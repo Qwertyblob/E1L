@@ -4,6 +4,7 @@ import com.qwertyblob.every1luvs.dto.SchedulingConflictResponse;
 import com.qwertyblob.every1luvs.repository.BookingRepository;
 import com.qwertyblob.every1luvs.repository.SlotRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -29,7 +30,10 @@ public class SchedulingAuditService {
         this.schedulingGuard = schedulingGuard;
     }
 
-    @Transactional(readOnly = true)
+    // REPEATABLE_READ so the appointment and slot reads see one consistent snapshot: a confirmation
+    // or cancellation committing between the two statements can't produce a phantom (false) conflict
+    // or hide a real one. Read-only, no scheduling lock — the report is advisory and re-runnable.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public List<SchedulingConflictResponse> findConflicts() {
         List<SchedulingGuard.Appointment> appointments = bookingRepository.findAllActiveOccupiedIntervals().stream()
                 .map(iv -> new SchedulingGuard.Appointment(iv.start(), iv.end(), iv.bookingId()))

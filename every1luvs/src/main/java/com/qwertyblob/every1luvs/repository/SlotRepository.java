@@ -21,13 +21,16 @@ public interface SlotRepository extends JpaRepository<SlotEntity, Long> {
     // Newest-ended first: the recently archived slots are the ones admins look for.
     Page<SlotEntity> findByArchivedAtIsNotNullOrderByStartTimeDesc(Pageable pageable);
 
-    // Bookable candidate slots: future (>= earliest) and non-archived, with NO bookedCount
-    // condition — availability is decided by SchedulingGuard against the chosen service duration,
-    // not by the display counter (a short slot may still admit a booking whose duration overlaps
-    // neighbouring capacity). Ordered for stable output.
+    // Bookable candidate slots: non-archived and starting within the bounded window
+    // [earliest, horizonEnd), with NO bookedCount condition — availability is decided by
+    // SchedulingGuard against the chosen service duration, not by the display counter (a short slot
+    // may still admit a booking whose duration overlaps neighbouring capacity). The horizon bound
+    // caps how much the public availability endpoint loads and sweeps per request. Ordered for
+    // stable output.
     @Query("SELECT s FROM SlotEntity s WHERE s.archivedAt IS NULL "
-            + "AND s.startTime >= :earliest ORDER BY s.startTime ASC")
-    List<SlotEntity> findBookableCandidates(@Param("earliest") Instant earliest);
+            + "AND s.startTime >= :earliest AND s.startTime < :horizonEnd ORDER BY s.startTime ASC")
+    List<SlotEntity> findBookableCandidates(@Param("earliest") Instant earliest,
+                                            @Param("horizonEnd") Instant horizonEnd);
 
     // Active slots whose window intersects [windowStart, windowEnd) — i.e. startTime < windowEnd
     // AND endTime > windowStart (half-open, so a slot that merely abuts the boundary doesn't

@@ -5,7 +5,10 @@ import com.qwertyblob.every1luvs.dto.CreateSlotRequest;
 import com.qwertyblob.every1luvs.dto.PageResponse;
 import com.qwertyblob.every1luvs.dto.SlotResponse;
 import com.qwertyblob.every1luvs.dto.UpdateSlotRequest;
+import com.qwertyblob.every1luvs.security.ClientIpResolver;
+import com.qwertyblob.every1luvs.service.RateLimiterService;
 import com.qwertyblob.every1luvs.service.SlotService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -22,6 +25,10 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,6 +36,9 @@ import static org.mockito.Mockito.when;
 class SlotControllerTest {
 
     @Mock SlotService slotService;
+    @Mock RateLimiterService rateLimiter;
+    @Mock ClientIpResolver clientIpResolver;
+    @Mock HttpServletRequest httpRequest;
 
     @InjectMocks SlotController slotController;
 
@@ -52,9 +62,13 @@ class SlotControllerTest {
     @Test
     void listAvailableSlots_passesQuoteToService() {
         List<SlotResponse> expected = List.of(slot(1L));
+        when(clientIpResolver.resolve(httpRequest)).thenReturn("203.0.113.7");
         when(slotService.listAvailableSlots("classic", "tier2", "none")).thenReturn(expected);
 
-        assertThat(slotController.listAvailableSlots("classic", "tier2", "none")).isEqualTo(expected);
+        assertThat(slotController.listAvailableSlots("classic", "tier2", "none", httpRequest))
+                .isEqualTo(expected);
+        // Public endpoint is rate-limited per client IP.
+        verify(rateLimiter).check(eq("availability:ip:203.0.113.7"), anyInt(), anyLong(), anyString());
     }
 
     @Test

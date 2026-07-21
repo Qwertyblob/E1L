@@ -29,6 +29,9 @@ import java.util.List;
 public class SlotService {
 
     private static final int MAX_TITLE_LENGTH = 255;
+    // How far ahead the public availability endpoint looks. Bounds per-request work; slots beyond
+    // this simply aren't offered yet (the salon books weeks, not months, in advance).
+    private static final Duration AVAILABILITY_HORIZON = Duration.ofDays(120);
 
     private final SlotRepository slotRepository;
     private final BookingRepository bookingRepository;
@@ -117,16 +120,16 @@ public class SlotService {
         }
 
         // A capacity reduction or a time change could push existing appointments over capacity at
-        // some instant (a capacity increase never can). Verify the invariant still holds under the
-        // COMPLETE proposed tile set — this slot's old version excluded, its new version included —
-        // across the union of the old and new windows. SchedulingGuard is the sole authority.
+        // some instant (a capacity increase never can). Validate only the PROPOSED window
+        // [startTime, endTime): removing the slot's OLD tile can only relax capacity (the min over
+        // fewer covering tiles never decreases), so the old window can't newly violate — and this
+        // avoids scanning unrelated time between the old and new windows on a move. Evaluated under
+        // the COMPLETE proposed tile set (old version excluded, new version included once).
         if (timeChanged || capacity < slot.getCapacity()) {
-            Instant affectedStart = earliest(slot.getStartTime(), startTime);
-            Instant affectedEnd = latest(slot.getEndTime(), endTime);
-            List<SchedulingGuard.CapacityTile> proposed = activeTilesExcluding(id, affectedStart, affectedEnd);
+            List<SchedulingGuard.CapacityTile> proposed = activeTilesExcluding(id, startTime, endTime);
             proposed.add(new SchedulingGuard.CapacityTile(startTime, endTime, capacity, id));
             if (!schedulingGuard.capacityChangeIsSafe(
-                    activeAppointmentsBefore(affectedEnd), proposed, affectedStart, affectedEnd)) {
+                    activeAppointmentsBefore(endTime), proposed, startTime, endTime)) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                         "This change would leave existing appointments over capacity. Cancel some bookings first.");
             }
@@ -190,7 +193,10 @@ public class SlotService {
                         "A valid service selection is required to check availability."));
 
         Instant earliest = BookingWindow.earliestBookableStartUtc();
-        List<SlotEntity> candidates = slotRepository.findBookableCandidates(earliest);
+        // Bound the horizon so this public endpoint can't be made to load + sweep the entire future
+        // schedule. Slots further out simply aren't offered until they fall inside the window.
+        List<SlotEntity> candidates = slotRepository.findBookableCandidates(
+                earliest, earliest.plus(AVAILABILITY_HORIZON));
         if (candidates.isEmpty()) {
             return List.of();
         }
@@ -232,17 +238,25 @@ public class SlotService {
         if (newSlots.isEmpty()) {
             return;
         }
-        Instant ws = newSlots.stream().map(SlotEntity::getStartTime).min(Instant::compareTo).orElseThrow();
-        Instant we = newSlots.stream().map(SlotEntity::getEndTime).max(Instant::compareTo).orElseThrow();
-        List<SchedulingGuard.CapacityTile> proposed = activeTilesExcluding(null, ws, we);
+        // Load existing tiles + appointments once across the batch span, then build the COMPLETE
+        // proposed set (existing + every new tile).
+        Instant spanStart = newSlots.stream().map(SlotEntity::getStartTime).min(Instant::compareTo).orElseThrow();
+        Instant spanEnd = newSlots.stream().map(SlotEntity::getEndTime).max(Instant::compareTo).orElseThrow();
+        List<SchedulingGuard.CapacityTile> proposed = activeTilesExcluding(null, spanStart, spanEnd);
         for (SlotEntity slot : newSlots) {
             // New slots aren't persisted yet (id null); slotId is display-only in the guard.
             proposed.add(new SchedulingGuard.CapacityTile(slot.getStartTime(), slot.getEndTime(),
                     slot.getCapacity(), slot.getId()));
         }
-        if (!schedulingGuard.capacityChangeIsSafe(activeAppointmentsBefore(we), proposed, ws, we)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "This slot would leave existing appointments over capacity at some time.");
+        List<SchedulingGuard.Appointment> appointments = activeAppointmentsBefore(spanEnd);
+        // Validate each new slot's OWN window, not the batch hull, so a pre-existing conflict in the
+        // gap between two far-apart new slots can't reject an otherwise-harmless batch.
+        for (SlotEntity slot : newSlots) {
+            if (!schedulingGuard.capacityChangeIsSafe(appointments, proposed,
+                    slot.getStartTime(), slot.getEndTime())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "This slot would leave existing appointments over capacity at some time.");
+            }
         }
     }
 
@@ -266,14 +280,6 @@ public class SlotService {
         return bookingRepository.findActiveOccupiedIntervalsBefore(windowEnd).stream()
                 .map(iv -> new SchedulingGuard.Appointment(iv.start(), iv.end(), iv.bookingId()))
                 .toList();
-    }
-
-    private static Instant earliest(Instant a, Instant b) {
-        return a.isBefore(b) ? a : b;
-    }
-
-    private static Instant latest(Instant a, Instant b) {
-        return a.isAfter(b) ? a : b;
     }
 
     private void validateSlotFields(String title, Instant startTime, Instant endTime, int capacity) {
