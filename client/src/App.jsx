@@ -741,6 +741,28 @@ function App() {
     });
   }
 
+  // Route admin complete/cancel through the confirm modal. Used by both the schedule-list row
+  // buttons and the booking detail modal, so every path confirms before firing the action.
+  function requestCompleteBooking(bookingId) {
+    setAdminConfirm({
+      title: 'Mark this booking completed?',
+      message: "This marks the appointment completed and sends the review request. This can't be undone.",
+      confirmLabel: 'Mark completed',
+      busyLabel: 'Completing…',
+      run: () => handleAdminCompleteBooking(bookingId),
+    });
+  }
+
+  function requestCancelBooking(bookingId) {
+    setAdminConfirm({
+      title: 'Cancel this booking?',
+      message: "This cancels the customer's booking and frees the slot. This can't be undone.",
+      confirmLabel: 'Cancel booking',
+      busyLabel: 'Cancelling…',
+      run: () => handleAdminCancelBooking(bookingId),
+    });
+  }
+
   async function loadAdminUsers(page = 0) {
     setAdminError('');
     setIsLoadingAdmin(true);
@@ -818,23 +840,11 @@ function App() {
       onClose={() => setBookingDetail(null)}
       onComplete={(id) => {
         setBookingDetail(null);
-        setAdminConfirm({
-          title: 'Mark this booking completed?',
-          message: "This marks the appointment completed and sends the review request. This can't be undone.",
-          confirmLabel: 'Mark completed',
-          busyLabel: 'Completing…',
-          run: () => handleAdminCompleteBooking(id),
-        });
+        requestCompleteBooking(id);
       }}
       onCancel={(id) => {
         setBookingDetail(null);
-        setAdminConfirm({
-          title: 'Cancel this booking?',
-          message: "This cancels the customer's booking and frees the slot. This can't be undone.",
-          confirmLabel: 'Cancel booking',
-          busyLabel: 'Cancelling…',
-          run: () => handleAdminCancelBooking(id),
-        });
+        requestCancelBooking(id);
       }}
     />
   );
@@ -889,8 +899,8 @@ function App() {
         bookingsByDate={bookingsByDate}
         scheduleSelectedBookings={scheduleSelectedBookings}
         setBookingDetail={setBookingDetail}
-        handleAdminCompleteBooking={handleAdminCompleteBooking}
-        handleAdminCancelBooking={handleAdminCancelBooking}
+        handleAdminCompleteBooking={requestCompleteBooking}
+        handleAdminCancelBooking={requestCancelBooking}
         loadAdminUsers={loadAdminUsers}
         isLoadingAdmin={isLoadingAdmin}
         adminError={adminError}
