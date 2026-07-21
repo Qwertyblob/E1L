@@ -50,11 +50,11 @@ class SlotControllerTest {
     }
 
     @Test
-    void listAvailableSlots_delegatesToService() {
+    void listAvailableSlots_passesQuoteToService() {
         List<SlotResponse> expected = List.of(slot(1L));
-        when(slotService.listAvailableSlots()).thenReturn(expected);
+        when(slotService.listAvailableSlots("classic", "tier2", "none")).thenReturn(expected);
 
-        assertThat(slotController.listAvailableSlots()).isEqualTo(expected);
+        assertThat(slotController.listAvailableSlots("classic", "tier2", "none")).isEqualTo(expected);
     }
 
     @Test

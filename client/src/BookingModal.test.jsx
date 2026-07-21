@@ -148,6 +148,23 @@ describe('BookingModal — availability mapping', () => {
     await userEvent.click(screen.getByRole('button', { name: '10:00' }));
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
   });
+
+  test('availability request carries the chosen service quote', async () => {
+    renderModal();
+    await toAddonsStep(); // selects Classic Manicure → serviceId=classic
+
+    // The quote-aware availability call must include the chosen service (add-ons default to none).
+    await waitFor(() => {
+      const urls = global.fetch.mock.calls.map((c) => String(c[0]));
+      expect(urls.some((u) => u.includes('/api/slots/available?') && u.includes('serviceId=classic')))
+        .toBe(true);
+    });
+  });
+
+  test('no availability request is made before a service is chosen', () => {
+    renderModal(); // still on the service step
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe('BookingModal — confirm flow', () => {

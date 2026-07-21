@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -178,13 +179,39 @@ public class SlotService {
         return slotRepository.findByArchivedAtIsNotNullOrderByStartTimeDesc(pageable).map(SlotResponse::from);
     }
 
-    public List<SlotResponse> listAvailableSlots() {
-        // Hide slots that the booking path would reject (same-day / past), so the
-        // availability list never offers a slot that can't actually be booked.
-        return slotRepository.findAvailableSlots(BookingWindow.earliestBookableStartUtc())
-                .stream()
+    // Advisory availability for a quote: candidate slots (future, non-archived) whose start could
+    // still admit an appointment of the quote's duration under SchedulingGuard, given the current
+    // appointments and capacity tiles. Confirmation re-checks under the scheduling lock, so this is
+    // a hint, not a guarantee (hence no lock here). serviceId is required; add-ons default to "none",
+    // and an unknown/partial quote is a 400.
+    public List<SlotResponse> listAvailableSlots(String serviceId, String nailArtId, String removalId) {
+        int durationMin = BookingCatalog.totalDurationMin(serviceId, nailArtId, removalId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "A valid service selection is required to check availability."));
+
+        Instant earliest = BookingWindow.earliestBookableStartUtc();
+        List<SlotEntity> candidates = slotRepository.findBookableCandidates(earliest);
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        // Load appointments + tiles once over the whole candidate span; the guard clips to each
+        // candidate's own window per call.
+        Instant maxEnd = candidates.stream()
+                .map(slot -> occupiedEndForCandidate(slot, durationMin))
+                .max(Instant::compareTo).orElseThrow();
+        List<SchedulingGuard.Appointment> appointments = activeAppointmentsBefore(maxEnd);
+        List<SchedulingGuard.CapacityTile> tiles = activeTilesExcluding(null, earliest, maxEnd);
+        return candidates.stream()
+                .filter(slot -> schedulingGuard.canAddAppointment(
+                        slot.getStartTime(), occupiedEndForCandidate(slot, durationMin), appointments, tiles))
                 .map(SlotResponse::from)
                 .toList();
+    }
+
+    private static Instant occupiedEndForCandidate(SlotEntity slot, int durationMin) {
+        return durationMin > 0
+                ? slot.getStartTime().plus(Duration.ofMinutes(durationMin))
+                : slot.getEndTime();
     }
 
     public SlotResponse getSlot(Long id) {

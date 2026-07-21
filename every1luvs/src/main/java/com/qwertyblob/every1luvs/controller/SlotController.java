@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -54,9 +55,15 @@ public class SlotController {
         return PageResponse.of(slotService.listArchivedSlots(pageable));
     }
 
+    // Quote-aware availability: serviceId is required, add-ons default to "none". The service
+    // recomputes the appointment duration from the catalog and asks SchedulingGuard which starts
+    // could still admit it; an unknown/partial quote is a 400.
     @GetMapping("/slots/available")
-    public List<SlotResponse> listAvailableSlots() {
-        return slotService.listAvailableSlots();
+    public List<SlotResponse> listAvailableSlots(
+            @RequestParam(required = false) String serviceId,
+            @RequestParam(required = false) String nailArtId,
+            @RequestParam(required = false) String removalId) {
+        return slotService.listAvailableSlots(serviceId, nailArtId, removalId);
     }
 
     @GetMapping("/slots/{id}")

@@ -405,16 +405,32 @@ class SlotServiceTest {
     }
 
     @Test
-    void listAvailableSlots_returnsOnlyAvailable() {
-        // Stubbing the exact cutoff also asserts the service filters by the bookable window:
-        // if it passed a different Instant the stub wouldn't match and the list would be empty.
-        when(slotRepository.findAvailableSlots(BookingWindow.earliestBookableStartUtc()))
-                .thenReturn(List.of(savedSlot(2, 0)));
+    void listAvailableSlots_returnsOnlyGuardApprovedStarts() {
+        // Two candidate slots (both capacity 1). The 09:00 slot already has an appointment covering
+        // its window, so a classic (45m) quote can't fit there; the 11:00 slot is free.
+        // Stubbing the exact cutoff also asserts the service filters by the bookable window.
+        Instant busyStart = Instant.parse("2099-06-15T09:00:00Z");
+        Instant busyEnd = Instant.parse("2099-06-15T10:00:00Z");
+        SlotEntity busy = slotAt(1L, busyStart, busyEnd, 1);
+        SlotEntity free = slotAt(2L, Instant.parse("2099-06-15T11:00:00Z"),
+                Instant.parse("2099-06-15T12:00:00Z"), 1);
+        when(slotRepository.findBookableCandidates(BookingWindow.earliestBookableStartUtc()))
+                .thenReturn(List.of(busy, free));
+        when(slotRepository.findActiveSlotsOverlapping(any(), any())).thenReturn(List.of(busy, free));
+        when(bookingRepository.findActiveOccupiedIntervalsBefore(any()))
+                .thenReturn(List.of(new OccupiedInterval(50L, busyStart, busyEnd, 60)));
 
-        List<SlotResponse> result = slotService.listAvailableSlots();
+        List<SlotResponse> result = slotService.listAvailableSlots("classic", "none", "none");
 
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).available()).isTrue();
+        assertThat(result).extracting(SlotResponse::id).containsExactly(2L);
+    }
+
+    @Test
+    void listAvailableSlots_unknownOrMissingService_throws400() {
+        var ex = catchThrowableOfType(
+                () -> slotService.listAvailableSlots(null, "none", "none"),
+                ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -427,6 +443,17 @@ class SlotServiceTest {
         s.setEndTime(Instant.parse("2099-06-15T10:00:00Z"));
         s.setCapacity(capacity);
         s.setBookedCount(bookedCount);
+        return s;
+    }
+
+    private SlotEntity slotAt(long id, Instant start, Instant end, int capacity) {
+        SlotEntity s = new SlotEntity();
+        s.setId(id);
+        s.setTitle("Session " + id);
+        s.setStartTime(start);
+        s.setEndTime(end);
+        s.setCapacity(capacity);
+        s.setBookedCount(0);
         return s;
     }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import './BookingModal.css';
 import { getCalendarDays } from './slotBuilderUtils';
 import { NAIL_ART, NAIL_SERVICES, REMOVAL } from './services';
@@ -459,14 +459,30 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     };
   }, []);
 
+  // Availability is quote-aware: the server checks whether the chosen service's duration still
+  // fits each slot under the scheduling invariant. Re-fetch whenever the quote changes. An
+  // AbortController cancels the in-flight request and a monotonic sequence guards against a slow
+  // earlier-quote response landing after a newer one, so stale data can never overwrite current.
+  const availabilitySeq = useRef(0);
   useEffect(() => {
-    let cancelled = false;
-    fetch(`${API_BASE_URL}/api/slots/available`)
+    // No service chosen yet — nothing to check; availableSlots stays at its initial []. (serviceId
+    // only ever goes null -> a real id, so there's no stale list to clear.)
+    if (!serviceId) return undefined;
+    const seq = (availabilitySeq.current += 1);
+    const controller = new AbortController();
+    const params = new URLSearchParams({ serviceId });
+    if (nailArt) params.set('nailArtId', nailArt);
+    if (removal) params.set('removalId', removal);
+    fetch(`${API_BASE_URL}/api/slots/available?${params.toString()}`, { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : []))
-      .then((data) => { if (!cancelled) setAvailableSlots(Array.isArray(data) ? data : []); })
-      .catch(() => { if (!cancelled) setAvailableSlots([]); });
-    return () => { cancelled = true; };
-  }, []);
+      .then((data) => {
+        if (seq === availabilitySeq.current) setAvailableSlots(Array.isArray(data) ? data : []);
+      })
+      .catch((err) => {
+        if (err.name !== 'AbortError' && seq === availabilitySeq.current) setAvailableSlots([]);
+      });
+    return () => controller.abort();
+  }, [serviceId, nailArt, removal]);
 
   const service = useMemo(
     () => NAIL_SERVICES.find((s) => s.id === serviceId) || null,
