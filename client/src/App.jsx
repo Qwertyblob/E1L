@@ -5,7 +5,7 @@ import LandingView from './LandingView';
 import ProfileView from './ProfileView';
 import AuthModal from './AuthModal';
 import { useSlotBuilder } from './useSlotBuilder';
-import { BookingDetailModal, CancelBookingDialog } from './BookingDialogs';
+import { BookingDetailModal, CancelBookingDialog, ConfirmDialog } from './BookingDialogs';
 import imgExpressManicure from './assets/images/Express_Manicure.jpg';
 import imgClassicManicure from './assets/images/Classic_Manicure.jpg';
 import imgStructuredClassic from './assets/images/Structured_Classic_Manicure.jpg';
@@ -172,6 +172,9 @@ function App() {
   const [bookingActionMessageType, setBookingActionMessageType] = useState('error');
   const [confirmCancelId, setConfirmCancelId] = useState(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  // Generic admin confirm modal: null when hidden, else { title, message, confirmLabel, busyLabel, run }.
+  const [adminConfirm, setAdminConfirm] = useState(null);
+  const [isRunningAdminConfirm, setIsRunningAdminConfirm] = useState(false);
   const [bookingsFilter, setBookingsFilter] = useState('upcoming');
 
   const [myBookings, setMyBookings] = useState([]);
@@ -198,6 +201,7 @@ function App() {
 
   const authModalRef = useFocusTrap(showAuth, () => { setShowAuth(false); setMode('login'); setMessage(''); });
   const cancelDialogRef = useFocusTrap(confirmCancelId != null, () => setConfirmCancelId(null));
+  const adminConfirmRef = useFocusTrap(adminConfirm != null, () => setAdminConfirm(null));
   const bookingDetailRef = useFocusTrap(bookingDetail != null, () => setBookingDetail(null));
 
   const apiRequest = useCallback(
@@ -714,6 +718,29 @@ function App() {
     }
   }
 
+  // Run the action queued by the admin confirm modal, then close it. The wrapped handlers set their
+  // own error messages and don't throw, so this only manages the modal's busy/open state.
+  async function runAdminConfirm() {
+    if (!adminConfirm) return;
+    setIsRunningAdminConfirm(true);
+    try {
+      await adminConfirm.run();
+    } finally {
+      setIsRunningAdminConfirm(false);
+      setAdminConfirm(null);
+    }
+  }
+
+  function requestDeleteSlot(slotId) {
+    setAdminConfirm({
+      title: 'Delete this slot?',
+      message: "This permanently deletes the slot. Slots with active or completed bookings can't be deleted.",
+      confirmLabel: 'Delete slot',
+      busyLabel: 'Deleting…',
+      run: () => handleDeleteSlot(slotId),
+    });
+  }
+
   async function loadAdminUsers(page = 0) {
     setAdminError('');
     setIsLoadingAdmin(true);
@@ -763,13 +790,22 @@ function App() {
   );
 
   const cancelConfirmEl = (
-    <CancelBookingDialog
-      confirmCancelId={confirmCancelId}
-      cancelDialogRef={cancelDialogRef}
-      isCancelling={isCancelling}
-      onKeep={() => setConfirmCancelId(null)}
-      onConfirm={confirmCancelBooking}
-    />
+    <>
+      <CancelBookingDialog
+        confirmCancelId={confirmCancelId}
+        cancelDialogRef={cancelDialogRef}
+        isCancelling={isCancelling}
+        onKeep={() => setConfirmCancelId(null)}
+        onConfirm={confirmCancelBooking}
+      />
+      <ConfirmDialog
+        request={adminConfirm}
+        isBusy={isRunningAdminConfirm}
+        dialogRef={adminConfirmRef}
+        onCancel={() => setAdminConfirm(null)}
+        onConfirm={runAdminConfirm}
+      />
+    </>
   );
 
   const bookingDetailEl = (
@@ -780,8 +816,26 @@ function App() {
       formatDate={formatDate}
       formatTimestamp={formatTimestamp}
       onClose={() => setBookingDetail(null)}
-      onComplete={(id) => { handleAdminCompleteBooking(id); setBookingDetail(null); }}
-      onCancel={(id) => { handleAdminCancelBooking(id); setBookingDetail(null); }}
+      onComplete={(id) => {
+        setBookingDetail(null);
+        setAdminConfirm({
+          title: 'Mark this booking completed?',
+          message: "This marks the appointment completed and sends the review request. This can't be undone.",
+          confirmLabel: 'Mark completed',
+          busyLabel: 'Completing…',
+          run: () => handleAdminCompleteBooking(id),
+        });
+      }}
+      onCancel={(id) => {
+        setBookingDetail(null);
+        setAdminConfirm({
+          title: 'Cancel this booking?',
+          message: "This cancels the customer's booking and frees the slot. This can't be undone.",
+          confirmLabel: 'Cancel booking',
+          busyLabel: 'Cancelling…',
+          run: () => handleAdminCancelBooking(id),
+        });
+      }}
     />
   );
 
@@ -865,7 +919,7 @@ function App() {
         archivedSlotsLoaded={archivedSlotsLoaded}
         archivedSlotsPage={archivedSlotsPage}
         archivedSlotsTotal={archivedSlotsTotal}
-        handleDeleteSlot={handleDeleteSlot}
+        handleDeleteSlot={requestDeleteSlot}
       />
     );
   }

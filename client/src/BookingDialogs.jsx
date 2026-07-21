@@ -21,6 +21,31 @@ export function CancelBookingDialog({ confirmCancelId, cancelDialogRef, isCancel
   );
 }
 
+// Generic confirm-or-cancel modal for admin actions (complete/cancel a booking, delete a slot).
+// `request` is null when hidden, else { title, message, confirmLabel, busyLabel }. onConfirm runs
+// the action; onCancel dismisses. isBusy disables both buttons while the action is in flight.
+export function ConfirmDialog({ request, isBusy, onCancel, onConfirm, dialogRef }) {
+  if (!request) return null;
+
+  const { title, message, confirmLabel = 'Confirm', busyLabel = 'Working…' } = request;
+  return (
+    <div className="confirm-backdrop">
+      <div className="confirm-card" ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title}>
+        <h3 className="confirm-title">{title}</h3>
+        <p className="confirm-text">{message}</p>
+        <div className="confirm-actions">
+          <button className="bk-btn bk-btn--ghost" disabled={isBusy} onClick={onCancel} type="button">
+            Keep
+          </button>
+          <button className="bk-btn bk-btn--primary" disabled={isBusy} onClick={onConfirm} type="button">
+            {isBusy ? busyLabel : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function BookingDetailModal({ bookingDetail, bookingDetailRef, statusClass, formatDate, formatTimestamp, onClose, onComplete, onCancel }) {
   if (!bookingDetail) return null;
 

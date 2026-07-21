@@ -168,6 +168,9 @@ describe('App admin — manage slots', () => {
     await gotoSchedule();
 
     await userEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    // A confirmation modal appears; the DELETE only fires after confirming it.
+    expect(callsTo(/\/api\/admin\/slots\/101$/).length).toBe(0);
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete slot' }));
 
     await waitFor(() => expect(callsTo(/\/api\/admin\/slots\/101$/).length).toBe(1));
     const [, opts] = callsTo(/\/api\/admin\/slots\/101$/)[0];
