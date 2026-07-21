@@ -1,5 +1,6 @@
 package com.qwertyblob.every1luvs.repository;
 
+import com.qwertyblob.every1luvs.dto.OccupiedInterval;
 import com.qwertyblob.every1luvs.entity.BookingEntity;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -42,6 +43,17 @@ public interface BookingRepository extends JpaRepository<BookingEntity, Long> {
     Optional<BookingEntity> findByIdAndArchivedAtIsNull(Long id);
 
     Optional<BookingEntity> findByIdAndUserIdAndArchivedAtIsNull(Long id, Long userId);
+
+    // Active BOOKED bookings that could overlap a scheduling window ending at :windowEnd, projected
+    // as the technician-seat interval each occupies. Filter is slot start < windowEnd: an
+    // appointment starting at/after the window end can't overlap it (half-open). SchedulingGuard
+    // clips to the query window, so appointments that already ended contribute nothing. We can't
+    // narrow by slot end — durationMin may exceed the slot length (short slots are bookable) — so
+    // the occupied interval can run past the slot's own end. Feeds the confirmation guard.
+    @Query("SELECT new com.qwertyblob.every1luvs.dto.OccupiedInterval(b.id, s.startTime, s.endTime, b.durationMin) "
+            + "FROM BookingEntity b, SlotEntity s WHERE b.slotId = s.id "
+            + "AND b.status = 'BOOKED' AND b.archivedAt IS NULL AND s.startTime < :windowEnd")
+    List<OccupiedInterval> findActiveOccupiedIntervalsBefore(@Param("windowEnd") Instant windowEnd);
 
     // Count a user's still-upcoming held seats (future BOOKED, non-archived). Past BOOKED rows are
     // excluded so a client is never permanently blocked by an old appointment left un-completed.

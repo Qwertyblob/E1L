@@ -3,16 +3,20 @@ package com.qwertyblob.every1luvs.service;
 import com.qwertyblob.every1luvs.dto.BookingAttachment;
 import com.qwertyblob.every1luvs.dto.BookingResponse;
 import com.qwertyblob.every1luvs.dto.CreateBookingRequest;
+import com.qwertyblob.every1luvs.dto.OccupiedInterval;
 import com.qwertyblob.every1luvs.entity.BookingEntity;
 import com.qwertyblob.every1luvs.entity.SlotEntity;
 import com.qwertyblob.every1luvs.entity.UserEntity;
 import com.qwertyblob.every1luvs.repository.BookingRepository;
+import com.qwertyblob.every1luvs.repository.SchedulingLockRepository;
 import com.qwertyblob.every1luvs.repository.SlotRepository;
 import com.qwertyblob.every1luvs.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -40,6 +44,10 @@ class BookingServiceTest {
     @Mock SlotRepository slotRepository;
     @Mock UserRepository userRepository;
     @Mock RateLimiterService rateLimiter;
+    @Mock SchedulingLockRepository schedulingLockRepository;
+    // Real (pure) guard — its sweep-line logic is exercised directly here rather than stubbed, so
+    // the finders feeding it drive accept/reject. SchedulingGuardTest covers the guard in isolation.
+    @Spy SchedulingGuard schedulingGuard = new SchedulingGuard();
 
     @InjectMocks BookingService bookingService;
 
@@ -161,16 +169,79 @@ class BookingServiceTest {
     }
 
     @Test
-    void createBooking_slotFull_throws409() {
+    void createBooking_windowFullyBooked_guardRejectsWith409() {
+        // Capacity-1 picked slot with one existing appointment already covering the booking's
+        // window, so SchedulingGuard rejects. booked_count plays no part in the decision.
+        SlotEntity slot = slot(1, 0);
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
-        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot(1, 1))); // full
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
         when(bookingRepository.existsActiveBookingForUserAndSlot(1L, 1L)).thenReturn(false);
+        when(slotRepository.findActiveSlotsOverlapping(any(), any())).thenReturn(List.of(slot));
+        when(bookingRepository.findActiveOccupiedIntervalsBefore(any()))
+                .thenReturn(List.of(new OccupiedInterval(99L, slot.getStartTime(), slot.getEndTime(), 60)));
 
         var ex = catchThrowableOfType(
                 () -> bookingService.createBooking(authBooking(1L), "alice@example.com"),
                 ResponseStatusException.class);
+
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(ex.getReason()).contains("fully booked");
+        assertThat(slot.getBookedCount()).isZero(); // guard rejected before any seat was taken
+        verify(bookingRepository, never()).save(any());
+    }
+
+    @Test
+    void createBooking_bridgingGapBetweenSequentialAppointments_accepted() {
+        // Capacity-1 slot 09:00–13:00 with two sequential appointments 09:00–10:00 and 10:00–11:00.
+        // A 30-min booking at 09:00 would clash, but the picked slot starts at 09:00 — instead this
+        // proves the guard is instant-by-instant: an appointment that abuts (10:00–11:00) doesn't
+        // make 09:00–09:30 concurrent beyond capacity when the 09:00 one is absent.
+        SlotEntity slot = slot(1, 0);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(bookingRepository.existsActiveBookingForUserAndSlot(1L, 1L)).thenReturn(false);
+        when(slotRepository.saveAndFlush(slot)).thenReturn(slot);
+        when(slotRepository.findActiveSlotsOverlapping(any(), any())).thenReturn(List.of(slot));
+        // classic = 45 min → picked window is 09:00–09:45; the only existing appointment starts at
+        // 09:45 (abutting), so it's never concurrent with the new one.
+        when(bookingRepository.findActiveOccupiedIntervalsBefore(any())).thenReturn(List.of(
+                new OccupiedInterval(99L, Instant.parse("2099-06-15T09:45:00Z"),
+                        Instant.parse("2099-06-15T10:45:00Z"), 60)));
+        when(bookingRepository.save(any())).thenAnswer(inv -> {
+            BookingEntity b = inv.getArgument(0);
+            b.setId(41L);
+            b.setStatus("BOOKED");
+            return b;
+        });
+
+        BookingResponse response = bookingService.createBooking(authBooking(1L), "alice@example.com");
+
+        assertThat(response.status()).isEqualTo("BOOKED");
+        assertThat(slot.getBookedCount()).isEqualTo(1);
+    }
+
+    @Test
+    void createBooking_acquiresSchedulingLockBeforeReadingSlot() {
+        SlotEntity slot = slot(3, 0);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(bookingRepository.existsActiveBookingForUserAndSlot(1L, 1L)).thenReturn(false);
+        when(slotRepository.saveAndFlush(slot)).thenReturn(slot);
+        when(bookingRepository.save(any())).thenAnswer(inv -> {
+            BookingEntity b = inv.getArgument(0);
+            b.setId(42L);
+            b.setStatus("BOOKED");
+            return b;
+        });
+
+        bookingService.createBooking(authBooking(1L), "alice@example.com");
+
+        // The scheduling lock must be taken before any capacity read and before the per-user row
+        // lock (fixed order avoids deadlock).
+        InOrder order = inOrder(schedulingLockRepository, slotRepository, userRepository);
+        order.verify(schedulingLockRepository).acquire();
+        order.verify(slotRepository).findById(1L);
+        order.verify(userRepository).findByIdForUpdate(1L);
     }
 
     @Test
@@ -432,6 +503,26 @@ class BookingServiceTest {
         assertThat(slot.getBookedCount()).isEqualTo(1);
     }
 
+    @Test
+    void cancelBooking_decrementsOnlyPickedSlot_noOverlapRelease() {
+        // Cancellation is a direct-booking decrement only — it never queries or touches other
+        // slots (the retired overlap-lock cache is gone).
+        SlotEntity slot = slot(3, 2);
+        BookingEntity booking = booking("BOOKED");
+        booking.setDurationMin(90);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        when(bookingRepository.findByIdAndUserIdAndArchivedAtIsNull(10L, 1L)).thenReturn(Optional.of(booking));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(bookingRepository.transitionFromBookedForUser(10L, 1L, "CANCELLED")).thenReturn(1);
+
+        BookingResponse response = bookingService.cancelBooking(10L, "alice@example.com");
+
+        assertThat(response.status()).isEqualTo("CANCELLED");
+        assertThat(slot.getBookedCount()).isEqualTo(1);
+        verify(slotRepository).saveAndFlush(slot);
+        verify(slotRepository, never()).findActiveSlotsOverlapping(any(), any());
+    }
+
     // ─── getMyBookings ────────────────────────────────────────────────────────────
 
     @Test
@@ -544,6 +635,46 @@ class BookingServiceTest {
     void adminCompleteBooking_alreadyCancelled_throws409() {
         when(bookingRepository.findByIdAndArchivedAtIsNull(10L)).thenReturn(Optional.of(booking("CANCELLED")));
         var ex = catchThrowableOfType(() -> bookingService.adminCompleteBooking(10L), ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void adminCompleteBooking_decrementsPickedSlotSeat() {
+        // A COMPLETED booking no longer holds a BOOKED seat, so the display counter drops by one in
+        // the same transaction as the status flip.
+        BookingEntity booking = booking("BOOKED");
+        SlotEntity slot = slot(3, 2);
+        slot.setStartTime(LocalDateTime.now(BookingWindow.BUSINESS_ZONE).minusHours(2).toInstant(ZoneOffset.UTC));
+        slot.setEndTime(LocalDateTime.now(BookingWindow.BUSINESS_ZONE).minusHours(1).toInstant(ZoneOffset.UTC));
+        when(bookingRepository.findByIdAndArchivedAtIsNull(10L)).thenReturn(Optional.of(booking));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(bookingRepository.transitionFromBooked(10L, "COMPLETED")).thenReturn(1);
+        when(slotRepository.saveAndFlush(slot)).thenReturn(slot);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user()));
+
+        BookingResponse response = bookingService.adminCompleteBooking(10L);
+
+        assertThat(response.status()).isEqualTo("COMPLETED");
+        assertThat(slot.getBookedCount()).isEqualTo(1);
+        verify(slotRepository).saveAndFlush(slot);
+    }
+
+    @Test
+    void adminCompleteBooking_slotOptimisticConflict_throws409() {
+        // A racing cancel bumped the slot's version, so the seat decrement's version-checked flush
+        // fails. It surfaces as a retryable 409 (rolling the COMPLETED transition back), not a 500.
+        BookingEntity booking = booking("BOOKED");
+        SlotEntity slot = slot(3, 2);
+        slot.setStartTime(LocalDateTime.now(BookingWindow.BUSINESS_ZONE).minusHours(2).toInstant(ZoneOffset.UTC));
+        slot.setEndTime(LocalDateTime.now(BookingWindow.BUSINESS_ZONE).minusHours(1).toInstant(ZoneOffset.UTC));
+        when(bookingRepository.findByIdAndArchivedAtIsNull(10L)).thenReturn(Optional.of(booking));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(bookingRepository.transitionFromBooked(10L, "COMPLETED")).thenReturn(1);
+        when(slotRepository.saveAndFlush(slot))
+                .thenThrow(new ObjectOptimisticLockingFailureException(SlotEntity.class, 1L));
+
+        var ex = catchThrowableOfType(() -> bookingService.adminCompleteBooking(10L), ResponseStatusException.class);
+
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
 

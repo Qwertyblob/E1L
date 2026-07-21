@@ -25,6 +25,17 @@ public interface SlotRepository extends JpaRepository<SlotEntity, Long> {
             + "AND s.startTime >= :earliest ORDER BY s.startTime ASC")
     List<SlotEntity> findAvailableSlots(@Param("earliest") Instant earliest);
 
+    // Active slots whose window intersects [windowStart, windowEnd) — i.e. startTime < windowEnd
+    // AND endTime > windowStart (half-open, so a slot that merely abuts the boundary doesn't
+    // count). These are the capacity tiles SchedulingGuard evaluates concurrency against; the
+    // picked slot (whose window is the query window) is included. Ordered for stable/testable
+    // output only.
+    @Query("SELECT s FROM SlotEntity s WHERE s.archivedAt IS NULL "
+            + "AND s.startTime < :windowEnd AND s.endTime > :windowStart "
+            + "ORDER BY s.startTime ASC")
+    List<SlotEntity> findActiveSlotsOverlapping(@Param("windowStart") Instant windowStart,
+                                                @Param("windowEnd") Instant windowEnd);
+
     // Bulk soft-archive of slots whose end_time passed the retention cutoff. Bypasses the
     // @Version check by design: archiving never races a seat change on a months-old slot.
     @Modifying(clearAutomatically = true)

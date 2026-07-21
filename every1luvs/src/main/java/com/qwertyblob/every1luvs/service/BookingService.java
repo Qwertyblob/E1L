@@ -7,6 +7,7 @@ import com.qwertyblob.every1luvs.entity.BookingEntity;
 import com.qwertyblob.every1luvs.entity.SlotEntity;
 import com.qwertyblob.every1luvs.entity.UserEntity;
 import com.qwertyblob.every1luvs.repository.BookingRepository;
+import com.qwertyblob.every1luvs.repository.SchedulingLockRepository;
 import com.qwertyblob.every1luvs.repository.SlotRepository;
 import com.qwertyblob.every1luvs.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -60,6 +62,8 @@ public class BookingService {
     private final SlotRepository slotRepository;
     private final UserRepository userRepository;
     private final RateLimiterService rateLimiter;
+    private final SchedulingGuard schedulingGuard;
+    private final SchedulingLockRepository schedulingLockRepository;
 
     // Max concurrent UPCOMING bookings a single account may hold. The initializer is the same as
     // the property default so unit tests (which construct this bean directly) get the real cap.
@@ -70,12 +74,16 @@ public class BookingService {
             BookingRepository bookingRepository,
             SlotRepository slotRepository,
             UserRepository userRepository,
-            RateLimiterService rateLimiter
+            RateLimiterService rateLimiter,
+            SchedulingGuard schedulingGuard,
+            SchedulingLockRepository schedulingLockRepository
     ) {
         this.bookingRepository = bookingRepository;
         this.slotRepository = slotRepository;
         this.userRepository = userRepository;
         this.rateLimiter = rateLimiter;
+        this.schedulingGuard = schedulingGuard;
+        this.schedulingLockRepository = schedulingLockRepository;
     }
 
     public BookingResponse createBooking(CreateBookingRequest request, String email) {
@@ -127,6 +135,12 @@ public class BookingService {
         // are ignored in favour of these authoritative values.
         BookingQuote quote = priceFromCatalog(request);
 
+        // Take the shared scheduling lock BEFORE reading the slot/capacity so this confirmation
+        // sees a consistent snapshot and can't race another confirmation (or a slot mutation) into
+        // an over-capacity schedule. Fixed lock order — scheduling lock first, then the per-user
+        // row lock below — avoids deadlock.
+        schedulingLockRepository.acquire();
+
         SlotEntity slot = loadSlotOrThrow(request.slotId());
 
         // Slot times are stored as UTC wall-clock; require the slot to start no earlier
@@ -159,16 +173,23 @@ public class BookingService {
                     "This email already has a booking for this slot.");
         }
 
-        if (slot.getBookedCount() >= slot.getCapacity()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "This slot is fully booked.");
+        // SchedulingGuard is the sole authority for time/capacity safety. This booking occupies
+        // [start, start + durationMin); reject if adding it would push concurrent appointments past
+        // capacity at any instant of that window. The picked slot's own capacity is one of the
+        // tiles, so this subsumes the old bookedCount >= capacity check. Held under the scheduling
+        // lock, so the snapshot we check against can't change before we insert.
+        Instant occupiedStart = slot.getStartTime();
+        Instant occupiedEnd = occupiedEnd(occupiedStart, slot.getEndTime(), quote.durationMin());
+        if (!schedulingGuard.canAddAppointment(occupiedStart, occupiedEnd,
+                activeAppointmentsBefore(occupiedEnd), activeCapacityTiles(occupiedStart, occupiedEnd))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This time is fully booked.");
         }
 
+        // bookedCount is a display-only count of active direct bookings on this slot — never the
+        // capacity authority. Bump the picked slot's counter, flushing now so a concurrent cancel's
+        // optimistic-version change surfaces here as a retryable 409, not a commit-time 500.
         slot.setBookedCount(slot.getBookedCount() + 1);
-
         try {
-            // saveAndFlush forces the version-checked UPDATE to fire now (inside this
-            // try) so a concurrent-booking optimistic-lock conflict is caught here and
-            // mapped to 409, instead of escaping at transaction commit as a 500.
             slotRepository.saveAndFlush(slot);
         } catch (ObjectOptimisticLockingFailureException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This slot is fully booked. Please try again.");
@@ -191,6 +212,9 @@ public class BookingService {
         booking.setNailArt(quote.nailArt());
         booking.setRemoval(quote.removal());
         booking.setTotalPrice(quote.totalPrice());
+        // Persist the duration so the SchedulingGuard invariant can be re-evaluated against this
+        // booking's occupied interval on future confirmations and in the conflict audit.
+        booking.setDurationMin(quote.durationMin());
 
         try {
             // The exists-checks above are TOCTOU; the partial unique indexes
@@ -269,10 +293,13 @@ public class BookingService {
     }
 
     private record BookingQuote(String serviceName, String nailArt,
-                                String removal, int totalPrice) {
+                                String removal, int totalPrice, int durationMin) {
     }
 
-    // Resolve canonical names + price from the server catalog, rejecting unknown selections.
+    // Resolve canonical names + price + total duration from the server catalog, rejecting
+    // unknown selections. durationMin (service + nail art + removal) defines the booking's
+    // occupied interval for SchedulingGuard, so it — like the price — is computed here from the
+    // authoritative catalog, never trusted from the client.
     private BookingQuote priceFromCatalog(CreateBookingRequest request) {
         BookingCatalog.Service service = BookingCatalog.service(request.serviceId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -285,7 +312,8 @@ public class BookingService {
                         "Unknown removal selection."));
 
         int total = service.price() + nailArt.price() + removal.price();
-        return new BookingQuote(service.name(), nailArt.name(), removal.name(), total);
+        int durationMin = service.durationMin() + nailArt.durationMin() + removal.durationMin();
+        return new BookingQuote(service.name(), nailArt.name(), removal.name(), total, durationMin);
     }
 
     @Transactional
@@ -319,7 +347,7 @@ public class BookingService {
         booking.setStatus("CANCELLED"); // reflect the committed change in the response DTO
 
         slot.setBookedCount(Math.max(0, slot.getBookedCount() - 1));
-        releaseSeatOrConflict(slot);
+        saveSlotOrConflict(slot);
 
         return toResponse(booking, slot, user);
     }
@@ -393,7 +421,7 @@ public class BookingService {
 
         SlotEntity slot = loadSlotOrThrow(booking.getSlotId());
         slot.setBookedCount(Math.max(0, slot.getBookedCount() - 1));
-        releaseSeatOrConflict(slot);
+        saveSlotOrConflict(slot);
 
         UserEntity user = booking.getUserId() != null
                 ? userRepository.findById(booking.getUserId()).orElse(null)
@@ -426,6 +454,14 @@ public class BookingService {
         }
         booking.setStatus("COMPLETED");
 
+        // A COMPLETED booking no longer holds a BOOKED seat, so drop the picked slot's display
+        // counter. Persist it in this same transaction via saveSlotOrConflict: if a racing cancel
+        // touched the slot, the optimistic-version conflict surfaces as a retryable 409 and rolls
+        // the COMPLETED transition back too, so the counter and status never diverge. No scheduling
+        // lock — completion only removes concurrency, so a stale guard can never admit an unsafe booking.
+        slot.setBookedCount(Math.max(0, slot.getBookedCount() - 1));
+        saveSlotOrConflict(slot);
+
         UserEntity user = booking.getUserId() != null
                 ? userRepository.findById(booking.getUserId()).orElse(null)
                 : null;
@@ -442,17 +478,44 @@ public class BookingService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Slot not found."));
     }
 
-    // Persist a seat-release (bookedCount decrement) on cancellation. saveAndFlush forces
-    // the version-checked UPDATE to fire now so a concurrent cancel/booking optimistic-lock
-    // conflict surfaces here as a retryable 409, instead of escaping at transaction commit
-    // as a 500 (which would also silently roll back the booking's CANCELLED status).
-    private void releaseSeatOrConflict(SlotEntity slot) {
+    // Persist a bookedCount change (seat taken or released) with its version check firing now,
+    // so a concurrent cancel/booking optimistic-lock conflict surfaces here as a retryable 409
+    // instead of escaping at transaction commit as a 500 (which would also silently roll back
+    // the booking's status transition).
+    private void saveSlotOrConflict(SlotEntity slot) {
         try {
             slotRepository.saveAndFlush(slot);
         } catch (ObjectOptimisticLockingFailureException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Slot was modified concurrently. Please try again.");
         }
+    }
+
+    // The instant this booking's occupied interval ends: start + durationMin, or the slot's own end
+    // for legacy rows with no positive duration. Mirrors OccupiedInterval.end() for the row being
+    // created (which isn't yet persisted, so it isn't returned by the occupied-interval query).
+    private static Instant occupiedEnd(Instant start, Instant slotEnd, Integer durationMin) {
+        return (durationMin != null && durationMin > 0)
+                ? start.plus(Duration.ofMinutes(durationMin))
+                : slotEnd;
+    }
+
+    // Active BOOKED appointments that could overlap a window ending at windowEnd, mapped to
+    // SchedulingGuard inputs. The guard clips to the query window, so loading a superset
+    // (everything starting before windowEnd) is correct — earlier appointments that already ended
+    // contribute nothing.
+    private List<SchedulingGuard.Appointment> activeAppointmentsBefore(Instant windowEnd) {
+        return bookingRepository.findActiveOccupiedIntervalsBefore(windowEnd).stream()
+                .map(iv -> new SchedulingGuard.Appointment(iv.start(), iv.end(), iv.bookingId()))
+                .toList();
+    }
+
+    // Active capacity tiles covering [windowStart, windowEnd), mapped to SchedulingGuard inputs.
+    private List<SchedulingGuard.CapacityTile> activeCapacityTiles(Instant windowStart, Instant windowEnd) {
+        return slotRepository.findActiveSlotsOverlapping(windowStart, windowEnd).stream()
+                .map(s -> new SchedulingGuard.CapacityTile(s.getStartTime(), s.getEndTime(),
+                        s.getCapacity(), s.getId()))
+                .toList();
     }
 
     private BookingResponse toResponse(BookingEntity booking, SlotEntity slot, UserEntity user) {

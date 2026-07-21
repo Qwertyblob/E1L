@@ -56,6 +56,14 @@ public class BookingEntity {
     @Column(name = "total_price")
     private Integer totalPrice;
 
+    // Total appointment length in minutes (service + nail art + removal), computed server-side
+    // from BookingCatalog at creation. Defines the booking's occupied interval
+    // [slotStart, slotStart + durationMin), which SchedulingGuard uses to enforce the
+    // no-overlapping-appointment invariant. NULL = legacy row booked before this feature, which
+    // falls back to occupying only its own slot's [start, end). V9 forbids non-positive values.
+    @Column(name = "duration_min")
+    private Integer durationMin;
+
     @Column(nullable = false)
     private String status;
 
@@ -132,6 +140,9 @@ public class BookingEntity {
 
     public Integer getTotalPrice() { return totalPrice; }
     public void setTotalPrice(Integer totalPrice) { this.totalPrice = totalPrice; }
+
+    public Integer getDurationMin() { return durationMin; }
+    public void setDurationMin(Integer durationMin) { this.durationMin = durationMin; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
