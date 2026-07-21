@@ -279,6 +279,29 @@ class BookingConcurrencyIntegrationTest {
                 .as("the unaffected user's booking still holds its seat").isEqualTo("BOOKED");
     }
 
+    @Test
+    void concurrentOtherUserCancelAndAccountDelete_neverErrorsAndSeatCountStaysConsistent() throws Exception {
+        // Shared capacity-2 slot: alice (being deleted) plus bob (unaffected). deleteAccount locks
+        // only alice's booking rows, so a concurrent cancel of BOB's booking still races the slot
+        // decrement and can bump its version. That must surface as a clean 409, never a 500, and
+        // bookedCount must stay consistent with the live BOOKED bookings.
+        SlotEntity slot = createFutureSlot(5, 2);
+        slot.setBookedCount(2);
+        slotRepository.save(slot);
+        UserEntity alice = createUser("shared-alice@test.local");
+        seedBooking(alice, slot);
+        BookingEntity bobBooking = seedBooking(createUser("shared-bob@test.local"), slot);
+
+        List<Integer> results = runSimultaneously(List.of(
+                () -> statusOf(() -> bookingService.adminCancelBooking(bobBooking.getId())),
+                () -> statusOf(() -> { userService.deleteAccount(alice.getEmail()); return null; })
+        ));
+
+        assertThat(results.stream().allMatch(s -> s == SUCCESS || s == 409))
+                .as("never a 500 — the cancel and the deletion each succeed or cleanly 409").isTrue();
+        assertSeatCountMatchesLiveBookings(slot.getId());
+    }
+
     // Every outcome is a clean success / conflict / not-found — never a 500. (The cancel/complete
     // can 404 if the delete removed the booking first, 409 if it lost the transition race.)
     private void assertCleanOutcomes(List<Integer> results) {

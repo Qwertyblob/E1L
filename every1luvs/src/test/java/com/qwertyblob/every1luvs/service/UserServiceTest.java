@@ -131,7 +131,7 @@ class UserServiceTest {
         userService.deleteAccount("alice@example.com");
 
         ArgumentCaptor<SlotEntity> savedSlots = ArgumentCaptor.forClass(SlotEntity.class);
-        verify(slotRepository, org.mockito.Mockito.times(2)).save(savedSlots.capture());
+        verify(slotRepository, org.mockito.Mockito.times(2)).saveAndFlush(savedSlots.capture());
         assertThat(savedSlots.getAllValues())
                 .extracting(SlotEntity::getId, SlotEntity::getBookedCount)
                 .containsExactlyInAnyOrder(
@@ -154,7 +154,7 @@ class UserServiceTest {
 
         userService.deleteAccount("alice@example.com");
 
-        verify(slotRepository, never()).save(org.mockito.ArgumentMatchers.any());
+        verify(slotRepository, never()).saveAndFlush(org.mockito.ArgumentMatchers.any());
         verify(bookingRepository).deleteByUserId(1L);
         verify(userRepository).delete(alice);
     }

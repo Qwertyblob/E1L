@@ -10,6 +10,7 @@ import com.qwertyblob.every1luvs.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -76,13 +77,22 @@ public class UserService {
         // Group active bookings per slot so a slot with several of this user's bookings has its
         // bookedCount decremented by the right amount in one update. Cancelled bookings already
         // released their seat, and completed ones are in the past, so neither is touched.
-        bookings.stream()
-                .filter(booking -> "BOOKED".equals(booking.getStatus()))
-                .collect(Collectors.groupingBy(BookingEntity::getSlotId, Collectors.counting()))
-                .forEach((slotId, seatsHeld) -> slotRepository.findById(slotId).ifPresent(slot -> {
-                    slot.setBookedCount(Math.max(0, slot.getBookedCount() - seatsHeld.intValue()));
-                    slotRepository.save(slot);
-                }));
+        // saveAndFlush forces the version-checked UPDATE to fire now: the row locks above only cover
+        // THIS user's bookings, so a concurrent cancel/complete of another user's booking on a
+        // SHARED slot can still bump the slot version. Surface that as a retryable 409 (the whole
+        // deletion rolls back cleanly to retry) instead of a commit-time 500.
+        try {
+            bookings.stream()
+                    .filter(booking -> "BOOKED".equals(booking.getStatus()))
+                    .collect(Collectors.groupingBy(BookingEntity::getSlotId, Collectors.counting()))
+                    .forEach((slotId, seatsHeld) -> slotRepository.findById(slotId).ifPresent(slot -> {
+                        slot.setBookedCount(Math.max(0, slot.getBookedCount() - seatsHeld.intValue()));
+                        slotRepository.saveAndFlush(slot);
+                    }));
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Your account could not be deleted due to a concurrent change. Please try again.");
+        }
 
         bookingRepository.deleteByUserId(user.getId());
         userRepository.delete(user);
