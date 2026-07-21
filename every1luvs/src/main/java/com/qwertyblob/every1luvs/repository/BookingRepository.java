@@ -55,6 +55,14 @@ public interface BookingRepository extends JpaRepository<BookingEntity, Long> {
             + "AND b.status = 'BOOKED' AND b.archivedAt IS NULL AND s.startTime < :windowEnd")
     List<OccupiedInterval> findActiveOccupiedIntervalsBefore(@Param("windowEnd") Instant windowEnd);
 
+    // Every active BOOKED booking as its occupied interval, for the pre-deployment conflict audit
+    // (SchedulingGuard.findViolations sweeps them against the active capacity tiles). Unbounded on
+    // purpose — the audit inspects the whole live schedule.
+    @Query("SELECT new com.qwertyblob.every1luvs.dto.OccupiedInterval(b.id, s.startTime, s.endTime, b.durationMin) "
+            + "FROM BookingEntity b, SlotEntity s WHERE b.slotId = s.id "
+            + "AND b.status = 'BOOKED' AND b.archivedAt IS NULL")
+    List<OccupiedInterval> findAllActiveOccupiedIntervals();
+
     // Count a user's still-upcoming held seats (future BOOKED, non-archived). Past BOOKED rows are
     // excluded so a client is never permanently blocked by an old appointment left un-completed.
     @Query("SELECT COUNT(b) FROM BookingEntity b, SlotEntity s WHERE b.slotId = s.id "

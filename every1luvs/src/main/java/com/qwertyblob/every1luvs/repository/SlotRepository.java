@@ -40,6 +40,11 @@ public interface SlotRepository extends JpaRepository<SlotEntity, Long> {
     List<SlotEntity> findActiveSlotsOverlapping(@Param("windowStart") Instant windowStart,
                                                 @Param("windowEnd") Instant windowEnd);
 
+    // Every active (non-archived) slot as a capacity tile source, for the pre-deployment conflict
+    // audit. Unbounded on purpose — the audit inspects the whole live schedule.
+    @Query("SELECT s FROM SlotEntity s WHERE s.archivedAt IS NULL ORDER BY s.startTime ASC")
+    List<SlotEntity> findActiveSlots();
+
     // Bulk soft-archive of slots whose end_time passed the retention cutoff. Bypasses the
     // @Version check by design: archiving never races a seat change on a months-old slot.
     @Modifying(clearAutomatically = true)

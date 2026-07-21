@@ -68,6 +68,7 @@ class BookingConcurrencyIntegrationTest {
     private static final int CAP = 5;
 
     @Autowired private BookingService bookingService;
+    @Autowired private SlotService slotService;
     @Autowired private UserRepository userRepository;
     @Autowired private SlotRepository slotRepository;
     @Autowired private BookingRepository bookingRepository;
@@ -156,6 +157,54 @@ class BookingConcurrencyIntegrationTest {
                 .filter("CANCELLED"::equals)
                 .count();
         assertThat(cancelled).as("cancelled bookings match committed seat releases").isEqualTo(succeeded);
+    }
+
+    @Test
+    void concurrentConfirmsAcrossOverlappingSlots_capViaMinInstantCapacity() throws Exception {
+        // Two DIFFERENT slot rows covering the same window, each capacity 2 → capacity(t)=min=2.
+        // The old per-slot bookedCount cache would let each row fill to 2 (4 total); the sweep-line
+        // guard counts appointments across both rows against the min, so only 2 succeed overall.
+        Instant start = BookingWindow.earliestBookableStartUtc().plus(Duration.ofDays(2));
+        Instant end = start.plus(Duration.ofHours(2));
+        SlotEntity slotA = saveSlot(start, end, 2);
+        SlotEntity slotB = saveSlot(start, end, 2);
+
+        List<Callable<Integer>> tasks = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            // Distinct users (the user/slot unique index forbids duplicates), alternating rows.
+            Long slotId = (i % 2 == 0) ? slotA.getId() : slotB.getId();
+            UserEntity user = createUser("overlap-" + i + "@test.local");
+            tasks.add(() -> statusOf(() -> bookingService.createBooking(bookingRequest(slotId), user.getEmail(), null)));
+        }
+        List<Integer> results = runSimultaneously(tasks);
+
+        assertThat(results.stream().filter(s -> s == SUCCESS).count())
+                .as("min capacity over the shared window is 2, counted across both rows").isEqualTo(2);
+        assertThat(results.stream().filter(s -> s == 409).count()).isEqualTo(4);
+    }
+
+    @Test
+    void concurrentDeleteAndConfirm_neverStrandsABookingOnADeletedSlot() throws Exception {
+        // The V1 FK is ON DELETE CASCADE, so an unlocked check-then-delete could cascade-delete a
+        // just-inserted booking. Under the shared scheduling lock the two serialize: delete-first =>
+        // the confirmation 404s; confirm-first => delete sees the booking and 409s. Either way no
+        // booking is ever left pointing at a missing slot, and neither raises a 500.
+        Instant start = BookingWindow.earliestBookableStartUtc().plus(Duration.ofDays(2));
+        SlotEntity slot = saveSlot(start, start.plus(Duration.ofHours(2)), 1);
+        UserEntity user = createUser("delete-race@test.local");
+
+        List<Integer> results = runSimultaneously(List.of(
+                () -> statusOf(() -> bookingService.createBooking(bookingRequest(slot.getId()), user.getEmail(), null)),
+                () -> statusOf(() -> { slotService.deleteSlot(slot.getId()); return null; })
+        ));
+
+        assertThat(results.stream().allMatch(s -> s == SUCCESS || s == 409 || s == 404))
+                .as("every outcome is a clean success/conflict/not-found, never a 500").isTrue();
+        // No committed booking may reference a slot that no longer exists.
+        long strandedBookings = bookingRepository.findAll().stream()
+                .filter(b -> slotRepository.findById(b.getSlotId()).isEmpty())
+                .count();
+        assertThat(strandedBookings).as("no booking left on a cascade-deleted slot").isZero();
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────────────────
