@@ -165,6 +165,33 @@ describe('BookingModal — availability mapping', () => {
     renderModal(); // still on the service step
     expect(global.fetch).not.toHaveBeenCalled();
   });
+
+  test('a picked time is re-gated when the quote changes to one that no longer offers it', async () => {
+    // Availability is quote-dependent: adding Tier 2 art removes the 10:00 slot.
+    global.fetch = jest.fn((url) => {
+      const excludesTen = String(url).includes('nailArtId=tier2');
+      const slots = excludesTen
+        ? SLOTS.filter((s) => !String(s.startTime).startsWith(`${DATE_STR}T10:00`))
+        : SLOTS;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(slots) });
+    });
+
+    renderModal();
+    await toAddonsStep();     // Classic Manicure (quote classic|none|none)
+    await clickContinue();    // step 2 — date & time
+    await userEvent.click(await screen.findByRole('button', { name: '15' }));
+    await userEvent.click(screen.getByRole('button', { name: '10:00' }));
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+
+    // Change the quote: add Tier 2 art. Availability refetches without 10:00; date/time persist.
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await userEvent.click(screen.getByRole('button', { name: /Tier 2 — Layered/ }));
+    await clickContinue();    // back to step 2 (do NOT re-click the day, so the stale time remains)
+
+    // The previously-picked 10:00 is no longer offered for the new quote → cannot continue.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled());
+    expect(screen.queryByRole('button', { name: '10:00' })).not.toBeInTheDocument();
+  });
 });
 
 describe('BookingModal — confirm flow', () => {

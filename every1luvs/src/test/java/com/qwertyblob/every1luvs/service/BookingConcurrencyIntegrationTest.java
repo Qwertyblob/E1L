@@ -69,6 +69,7 @@ class BookingConcurrencyIntegrationTest {
 
     @Autowired private BookingService bookingService;
     @Autowired private SlotService slotService;
+    @Autowired private UserService userService;
     @Autowired private UserRepository userRepository;
     @Autowired private SlotRepository slotRepository;
     @Autowired private BookingRepository bookingRepository;
@@ -205,6 +206,31 @@ class BookingConcurrencyIntegrationTest {
                 .filter(b -> slotRepository.findById(b.getSlotId()).isEmpty())
                 .count();
         assertThat(strandedBookings).as("no booking left on a cascade-deleted slot").isZero();
+    }
+
+    @Test
+    void concurrentConfirmAndAccountDelete_cleanOutcomesAndConsistentBookedCount() throws Exception {
+        // createBooking and deleteAccount both take the scheduling lock then the user row (same
+        // fixed order) and re-read the user under the lock. So a confirmation racing the owner's
+        // account deletion either commits fully (deletion then releases its seat) or 401s cleanly —
+        // never a misleading FK 409/500, and bookedCount never drifts from the live bookings.
+        UserEntity user = createUser("acct-race@test.local");
+        SlotEntity slot = createFutureSlot(2, 1);
+
+        List<Integer> results = runSimultaneously(List.of(
+                () -> statusOf(() -> bookingService.createBooking(bookingRequest(slot.getId()), user.getEmail(), null)),
+                () -> statusOf(() -> { userService.deleteAccount(user.getEmail()); return null; })
+        ));
+
+        assertThat(results.stream().allMatch(s -> s == SUCCESS || s == 401))
+                .as("confirmation either succeeds or cleanly 401s; never 500 or a misleading 409").isTrue();
+        // bookedCount must match the live BOOKED bookings still on the slot (if it survived).
+        long liveBookings = bookingRepository.findAll().stream()
+                .filter(b -> slot.getId().equals(b.getSlotId()) && "BOOKED".equals(b.getStatus()))
+                .count();
+        slotRepository.findById(slot.getId()).ifPresent(after ->
+                assertThat((long) after.getBookedCount())
+                        .as("bookedCount matches live BOOKED bookings on the slot").isEqualTo(liveBookings));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────────────────

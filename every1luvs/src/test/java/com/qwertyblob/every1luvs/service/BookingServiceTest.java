@@ -11,6 +11,7 @@ import com.qwertyblob.every1luvs.repository.BookingRepository;
 import com.qwertyblob.every1luvs.repository.SchedulingLockRepository;
 import com.qwertyblob.every1luvs.repository.SlotRepository;
 import com.qwertyblob.every1luvs.repository.UserRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -50,6 +51,14 @@ class BookingServiceTest {
     @Spy SchedulingGuard schedulingGuard = new SchedulingGuard();
 
     @InjectMocks BookingService bookingService;
+
+    @BeforeEach
+    void stubUserRowLock() {
+        // createBooking now re-reads the user under the scheduling lock via findByIdForUpdate and
+        // uses that entity. Default it to the same user for authenticated tests; the deleted-user
+        // test overrides this. lenient() because guest-path tests never reach it.
+        lenient().when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user()));
+    }
 
     // ─── createBooking ────────────────────────────────────────────────────────────
 
@@ -284,6 +293,25 @@ class BookingServiceTest {
                 () -> bookingService.createBooking(authBooking(1L), "ghost@example.com"),
                 ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void createBooking_userDeletedBeforeRowLock_throws401Cleanly() {
+        // The user existed at the pre-lock read, but a concurrent account deletion removed the row
+        // by the time we lock it. Re-reading under the lock must yield a clean 401 — no seat taken,
+        // no booking insert that would trip the user FK as a misleading 409/500.
+        SlotEntity slot = slot(3, 0);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.empty());
+
+        var ex = catchThrowableOfType(
+                () -> bookingService.createBooking(authBooking(1L), "alice@example.com"),
+                ResponseStatusException.class);
+
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(slot.getBookedCount()).isZero();
+        verify(bookingRepository, never()).save(any());
     }
 
     @Test

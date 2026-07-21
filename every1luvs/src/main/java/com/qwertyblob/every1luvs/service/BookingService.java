@@ -152,10 +152,13 @@ public class BookingService {
         }
 
         if (user != null) {
-            // Lock the user's row so their concurrent bookings serialize; then enforce the cap on
-            // upcoming held seats. Without the lock, two parallel requests could both pass a count
-            // check and exceed the cap (count-then-insert race).
-            userRepository.findByIdForUpdate(user.getId());
+            // Lock the user's row (serializing their concurrent bookings for the cap check) and
+            // re-read it under the lock. The user was loaded before the scheduling lock, so a
+            // concurrent account deletion holding the lock could have removed the row since; using
+            // the freshly-locked entity turns that into a clean 401 here instead of a misleading
+            // FK-constraint 409/500 at insert time.
+            user = userRepository.findByIdForUpdate(user.getId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found."));
             long upcoming = bookingRepository.countActiveFutureBookingsForUser(
                     user.getId(), BookingWindow.currentBusinessWallClockUtc());
             if (upcoming >= maxActiveBookingsPerUser) {

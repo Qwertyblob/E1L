@@ -62,7 +62,10 @@ public class UserService {
         // (its booking is in our snapshot, so its seat is released) or blocks until we delete the
         // user and then fails to find them.
         schedulingLockRepository.acquire();
-        userRepository.findByIdForUpdate(user.getId());
+        // Re-read the user under the lock and use that entity — a concurrent deletion could have
+        // removed the row between our findByEmail above and acquiring the lock; treat that as 401.
+        user = userRepository.findByIdForUpdate(user.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User no longer exists."));
 
         List<BookingEntity> bookings = bookingRepository.findByUserId(user.getId());
 
