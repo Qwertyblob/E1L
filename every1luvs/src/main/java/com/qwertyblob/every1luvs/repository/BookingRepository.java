@@ -2,9 +2,11 @@ package com.qwertyblob.every1luvs.repository;
 
 import com.qwertyblob.every1luvs.dto.OccupiedInterval;
 import com.qwertyblob.every1luvs.entity.BookingEntity;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -100,6 +102,16 @@ public interface BookingRepository extends JpaRepository<BookingEntity, Long> {
     // Every booking ever made by a user, regardless of status or archive state — used when
     // deleting an account so seats held by still-active bookings can be released first.
     List<BookingEntity> findByUserId(Long userId);
+
+    // As findByUserId, but SELECT ... FOR UPDATE on the booking rows. Account deletion uses this so
+    // its snapshot can't go stale: cancellation/completion don't take the scheduling lock, so
+    // without row locks one could commit a seat-release between the snapshot and the per-slot
+    // decrement, double-counting. Blocking their status-transition UPDATE on these locked rows keeps
+    // the decrement exact. Booking rows are locked before any slot row (consistent order, no
+    // deadlock). Must run in the caller's transaction.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT b FROM BookingEntity b WHERE b.userId = :userId")
+    List<BookingEntity> findByUserIdForUpdate(@Param("userId") Long userId);
 
     void deleteByUserId(Long userId);
 

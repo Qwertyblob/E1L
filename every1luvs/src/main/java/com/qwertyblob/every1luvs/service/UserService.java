@@ -67,7 +67,11 @@ public class UserService {
         user = userRepository.findByIdForUpdate(user.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User no longer exists."));
 
-        List<BookingEntity> bookings = bookingRepository.findByUserId(user.getId());
+        // Lock the user's booking rows before touching any slot: a concurrent cancel/complete
+        // (which take no scheduling lock) would otherwise commit a seat-release between this
+        // snapshot and the decrement below and double-count. Locking bookings before slots keeps a
+        // consistent lock order with those paths, so no deadlock.
+        List<BookingEntity> bookings = bookingRepository.findByUserIdForUpdate(user.getId());
 
         // Group active bookings per slot so a slot with several of this user's bookings has its
         // bookedCount decremented by the right amount in one update. Cancelled bookings already

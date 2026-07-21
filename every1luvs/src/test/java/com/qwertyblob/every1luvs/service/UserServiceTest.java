@@ -119,7 +119,7 @@ class UserServiceTest {
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
         when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(alice)); // re-read under the lock
         // Two active bookings on slot 10, one on slot 20, plus a cancelled one that holds no seat.
-        when(bookingRepository.findByUserId(1L)).thenReturn(List.of(
+        when(bookingRepository.findByUserIdForUpdate(1L)).thenReturn(List.of(
                 booking(10L, "BOOKED"),
                 booking(10L, "BOOKED"),
                 booking(20L, "BOOKED"),
@@ -147,7 +147,7 @@ class UserServiceTest {
         UserEntity alice = user(1L, "Alice", "alice@example.com", "USER");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
         when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(alice)); // re-read under the lock
-        when(bookingRepository.findByUserId(1L)).thenReturn(List.of(
+        when(bookingRepository.findByUserIdForUpdate(1L)).thenReturn(List.of(
                 booking(10L, "CANCELLED"),
                 booking(20L, "COMPLETED")
         ));

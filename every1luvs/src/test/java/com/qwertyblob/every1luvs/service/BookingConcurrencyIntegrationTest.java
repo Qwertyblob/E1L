@@ -233,6 +233,68 @@ class BookingConcurrencyIntegrationTest {
                         .as("bookedCount matches live BOOKED bookings on the slot").isEqualTo(liveBookings));
     }
 
+    @Test
+    void concurrentCancelAndAccountDelete_releasesSeatExactlyOnce() throws Exception {
+        // Capacity-2 slot shared by the user being deleted (alice) and an unaffected user (bob).
+        // Cancellation takes no scheduling lock, so without row-locking the user's bookings the
+        // delete could decrement alice's seat a second time and drive bookedCount below the true
+        // direct-booking count.
+        SlotEntity slot = createFutureSlot(5, 2);
+        slot.setBookedCount(2);
+        slotRepository.save(slot);
+        UserEntity alice = createUser("cancel-del-alice@test.local");
+        BookingEntity aliceBooking = seedBooking(alice, slot);
+        BookingEntity bobBooking = seedBooking(createUser("cancel-del-bob@test.local"), slot);
+
+        List<Integer> results = runSimultaneously(List.of(
+                () -> statusOf(() -> bookingService.adminCancelBooking(aliceBooking.getId())),
+                () -> statusOf(() -> { userService.deleteAccount(alice.getEmail()); return null; })
+        ));
+
+        assertCleanOutcomes(results);
+        assertSeatCountMatchesLiveBookings(slot.getId());
+        assertThat(bookingRepository.findById(bobBooking.getId()).orElseThrow().getStatus())
+                .as("the unaffected user's booking still holds its seat").isEqualTo("BOOKED");
+    }
+
+    @Test
+    void concurrentCompleteAndAccountDelete_releasesSeatExactlyOnce() throws Exception {
+        // Same race via completion (which also takes no scheduling lock). Completion needs the slot
+        // to have ended, so use a past slot.
+        SlotEntity slot = createPastSlot(2);
+        slot.setBookedCount(2);
+        slotRepository.save(slot);
+        UserEntity alice = createUser("done-del-alice@test.local");
+        BookingEntity aliceBooking = seedBooking(alice, slot);
+        BookingEntity bobBooking = seedBooking(createUser("done-del-bob@test.local"), slot);
+
+        List<Integer> results = runSimultaneously(List.of(
+                () -> statusOf(() -> bookingService.adminCompleteBooking(aliceBooking.getId())),
+                () -> statusOf(() -> { userService.deleteAccount(alice.getEmail()); return null; })
+        ));
+
+        assertCleanOutcomes(results);
+        assertSeatCountMatchesLiveBookings(slot.getId());
+        assertThat(bookingRepository.findById(bobBooking.getId()).orElseThrow().getStatus())
+                .as("the unaffected user's booking still holds its seat").isEqualTo("BOOKED");
+    }
+
+    // Every outcome is a clean success / conflict / not-found — never a 500. (The cancel/complete
+    // can 404 if the delete removed the booking first, 409 if it lost the transition race.)
+    private void assertCleanOutcomes(List<Integer> results) {
+        assertThat(results.stream().allMatch(s -> s == SUCCESS || s == 409 || s == 404)).isTrue();
+    }
+
+    // bookedCount must equal the BOOKED bookings still pointing at the slot — proving the seat was
+    // released exactly once despite the cancel/complete-vs-delete race.
+    private void assertSeatCountMatchesLiveBookings(Long slotId) {
+        long liveBooked = bookingRepository.findAll().stream()
+                .filter(b -> slotId.equals(b.getSlotId()) && "BOOKED".equals(b.getStatus()))
+                .count();
+        assertThat((long) slotRepository.findById(slotId).orElseThrow().getBookedCount())
+                .as("bookedCount matches live BOOKED bookings on the slot").isEqualTo(liveBooked);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────────────────────
 
     /** Runs each task on its own thread, released at the same instant, and returns their results. */
