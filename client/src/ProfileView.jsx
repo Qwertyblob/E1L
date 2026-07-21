@@ -840,6 +840,170 @@ function CreateSlotsPanel({
 // ── Schedule panel: manage existing slots ──
 const SLOT_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
+const SLOT_FILTERS = [
+  { id: 'upcoming', label: 'Upcoming' },
+  { id: 'past', label: 'Past' },
+  { id: 'all', label: 'All' },
+  { id: 'archived', label: 'Archived' },
+];
+
+const slotDay = (slot) => (slot.startTime ? String(slot.startTime).slice(0, 10) : '');
+
+// Group every slot by its start date so the calendar can show a per-day count.
+function groupSlotsByDate(slots) {
+  return slots.reduce((acc, slot) => {
+    const day = slotDay(slot);
+    if (day) (acc[day] = acc[day] || []).push(slot);
+    return acc;
+  }, {});
+}
+
+// Count shown on each list-view filter tab. Archived stays null until its data has
+// actually been fetched; once fetched the count is the server-side total, not just
+// the loaded pages.
+function slotFilterCount(filterId, adminSlots, isUpcoming, archivedSlotsLoaded, archivedSlotsTotal) {
+  if (filterId === 'archived') return archivedSlotsLoaded ? archivedSlotsTotal : null;
+  if (filterId === 'all') return adminSlots.length;
+  if (filterId === 'upcoming') return adminSlots.filter(isUpcoming).length;
+  return adminSlots.filter((s) => !isUpcoming(s)).length;
+}
+
+// Which slots the body renders: the calendar view shows the selected day (or every
+// slot when no day is picked); the list view shows the active filter's slice, with
+// the Archived tab drawing from its own on-demand dataset.
+function selectVisibleSlots({ slotView, slotFilter, slotCal, adminSlots, archivedSlots, slotsByDate, isUpcoming }) {
+  if (slotView === 'calendar') {
+    return slotCal.selected ? (slotsByDate[slotCal.selected] || []) : adminSlots;
+  }
+  if (slotFilter === 'archived') return archivedSlots;
+  if (slotFilter === 'upcoming') return adminSlots.filter(isUpcoming);
+  if (slotFilter === 'past') return adminSlots.filter((slot) => !isUpcoming(slot));
+  return adminSlots;
+}
+
+function SlotFilterTabs({
+  slotFilter, setSlotFilter, adminSlots, isUpcoming, archivedSlotsLoaded, archivedSlotsTotal, loadArchivedSlots,
+}) {
+  return (
+    <div className="profile-tabs" role="tablist">
+      {SLOT_FILTERS.map((f) => {
+        const count = slotFilterCount(f.id, adminSlots, isUpcoming, archivedSlotsLoaded, archivedSlotsTotal);
+        return (
+          <button
+            className={`profile-tab${slotFilter === f.id ? ' profile-tab--active' : ''}`}
+            key={f.id}
+            onClick={() => {
+              setSlotFilter(f.id);
+              // The archive can be large, so it's only fetched when this tab is opened.
+              if (f.id === 'archived' && !archivedSlotsLoaded) loadArchivedSlots();
+            }}
+            type="button"
+          >
+            {f.label}{count != null ? ` (${count})` : ''}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SlotCalendarView({ slotCal, setSlotCal, slotsByDate, visibleCount }) {
+  return (
+    <div className="schedule-calendar">
+      <div className="bk-cal-header">
+        <button className="bk-cal-nav" onClick={() => setSlotCal((c) => ({ ...c, month: c.month === 0 ? 11 : c.month - 1, year: c.month === 0 ? c.year - 1 : c.year }))} type="button" aria-label="Previous month">&#8249;</button>
+        <span className="bk-cal-title">{SLOT_MONTHS[slotCal.month]} {slotCal.year}</span>
+        <button className="bk-cal-nav" onClick={() => setSlotCal((c) => ({ ...c, month: c.month === 11 ? 0 : c.month + 1, year: c.month === 11 ? c.year + 1 : c.year }))} type="button" aria-label="Next month">&#8250;</button>
+      </div>
+      <div className="bk-cal-grid">
+        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => <span className="bk-cal-dow" key={d}>{d}</span>)}
+        {getCalendarDays(slotCal.year, slotCal.month).map((cell, i) => {
+          if (!cell.date) return <span className="bk-cal-cell bk-cal-cell--empty" key={i} />;
+          const count = (slotsByDate[cell.date] || []).length;
+          return (
+            <button
+              className={`bk-cal-cell schedule-cal-cell${slotCal.selected === cell.date ? ' bk-cal-cell--selected' : ''}${count ? ' schedule-cal-cell--has' : ''}`}
+              disabled={count === 0}
+              key={i}
+              onClick={() => setSlotCal((c) => ({ ...c, selected: c.selected === cell.date ? null : cell.date }))}
+              type="button"
+            >
+              {cell.day}
+              {count > 0 && <span className="schedule-cal-count">{count}</span>}
+            </button>
+          );
+        })}
+      </div>
+      {slotCal.selected && (
+        <p className="schedule-cal-label">Showing {visibleCount} slot{visibleCount !== 1 ? 's' : ''} on {formatDateShort(slotCal.selected)}{' '}
+          <button className="text-button schedule-clear" onClick={() => setSlotCal((c) => ({ ...c, selected: null }))} type="button">Show all</button>
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SlotRow({ slot, formatDate, formatTimestamp, handleDeleteSlot }) {
+  return (
+    <div className={`user-row${slot.archived ? ' user-row--archived' : ''}`}>
+      <div className="row-info">
+        <span>
+          {slot.title}
+          {slot.archived && <span className="archived-pill">Archived</span>}
+        </span>
+        <span className="form-hint">
+          {formatDate(slot.startTime)} &rarr; {formatDate(slot.endTime)} &middot; {slot.bookedCount}/{slot.capacity} booked &middot; Created {formatTimestamp(slot.createdAt)}
+        </span>
+      </div>
+      <button className="text-button" onClick={() => handleDeleteSlot(slot.id)} type="button">
+        Delete
+      </button>
+    </div>
+  );
+}
+
+function SlotList({
+  slotView, slotFilter, visibleSlots, adminSlotsError, archivedSlotsError,
+  isLoadingArchivedSlots, archivedSlots, archivedSlotsLoaded, archivedSlotsPage, archivedSlotsTotal,
+  loadArchivedSlots, formatDate, formatTimestamp, handleDeleteSlot,
+}) {
+  const showArchivedLoading = slotView === 'list' && slotFilter === 'archived' && isLoadingArchivedSlots;
+  const showEmptyState = visibleSlots.length === 0 && !adminSlotsError
+    && !(slotFilter === 'archived' && (isLoadingArchivedSlots || archivedSlotsError));
+  const showLoadMore = slotView === 'list' && slotFilter === 'archived' && archivedSlotsLoaded
+    && archivedSlots.length < archivedSlotsTotal;
+
+  return (
+    <div className="user-list">
+      {showArchivedLoading && <p className="empty-state">Loading archived slots&hellip;</p>}
+      {showEmptyState && (
+        <p className="empty-state">{slotView === 'calendar' ? 'No slots.' : `No ${slotFilter} slots.`}</p>
+      )}
+      {visibleSlots.map((slot) => (
+        <SlotRow
+          key={slot.id}
+          slot={slot}
+          formatDate={formatDate}
+          formatTimestamp={formatTimestamp}
+          handleDeleteSlot={handleDeleteSlot}
+        />
+      ))}
+      {showLoadMore && (
+        <button
+          className="primary-button compact archived-load-more"
+          disabled={isLoadingArchivedSlots}
+          onClick={() => loadArchivedSlots(archivedSlotsPage + 1)}
+          type="button"
+        >
+          {isLoadingArchivedSlots
+            ? 'Loading'
+            : `Load more (${archivedSlots.length} of ${archivedSlotsTotal})`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ManageSlotsPanel({
   isLoadingAdminSlots,
   loadAdminSlots,
@@ -862,26 +1026,12 @@ function ManageSlotsPanel({
   const [slotCal, setSlotCal] = useState({ month: today.getMonth(), year: today.getFullYear(), selected: null });
 
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const dayOf = (slot) => (slot.startTime ? String(slot.startTime).slice(0, 10) : '');
-  const isUpcoming = (slot) => dayOf(slot) >= todayKey;
+  const isUpcoming = (slot) => slotDay(slot) >= todayKey;
 
-  // Group every slot by its start date so the calendar can show a per-day count.
-  const slotsByDate = adminSlots.reduce((acc, slot) => {
-    const day = dayOf(slot);
-    if (!day) return acc;
-    (acc[day] = acc[day] || []).push(slot);
-    return acc;
-  }, {});
-
-  // The Archived tab renders its own on-demand dataset; the other tabs slice adminSlots.
-  const listFiltered = slotFilter === 'archived'
-    ? archivedSlots
-    : adminSlots.filter((slot) =>
-      slotFilter === 'all' ? true : slotFilter === 'upcoming' ? isUpcoming(slot) : !isUpcoming(slot));
-
-  const visibleSlots = slotView === 'calendar'
-    ? (slotCal.selected ? (slotsByDate[slotCal.selected] || []) : adminSlots)
-    : listFiltered;
+  const slotsByDate = groupSlotsByDate(adminSlots);
+  const visibleSlots = selectVisibleSlots({
+    slotView, slotFilter, slotCal, adminSlots, archivedSlots, slotsByDate, isUpcoming,
+  });
 
   return (
     <article className="panel panel--wide">
@@ -906,112 +1056,42 @@ function ManageSlotsPanel({
       {slotFilter === 'archived' && archivedSlotsError && <p className="form-message error">{archivedSlotsError}</p>}
 
       {slotView === 'list' && (
-        <div className="profile-tabs" role="tablist">
-          {[
-            { id: 'upcoming', label: 'Upcoming' },
-            { id: 'past', label: 'Past' },
-            { id: 'all', label: 'All' },
-            { id: 'archived', label: 'Archived' },
-          ].map((f) => {
-            // Archived shows no count until its data has actually been fetched; once
-            // fetched, the count is the server-side total, not just the loaded pages.
-            const count = f.id === 'archived'
-              ? (archivedSlotsLoaded ? archivedSlotsTotal : null)
-              : f.id === 'all'
-                ? adminSlots.length
-                : f.id === 'upcoming'
-                  ? adminSlots.filter(isUpcoming).length
-                  : adminSlots.filter((s) => !isUpcoming(s)).length;
-            return (
-              <button
-                className={`profile-tab${slotFilter === f.id ? ' profile-tab--active' : ''}`}
-                key={f.id}
-                onClick={() => {
-                  setSlotFilter(f.id);
-                  // The archive can be large, so it's only fetched when this tab is opened.
-                  if (f.id === 'archived' && !archivedSlotsLoaded) loadArchivedSlots();
-                }}
-                type="button"
-              >
-                {f.label}{count != null ? ` (${count})` : ''}
-              </button>
-            );
-          })}
-        </div>
+        <SlotFilterTabs
+          slotFilter={slotFilter}
+          setSlotFilter={setSlotFilter}
+          adminSlots={adminSlots}
+          isUpcoming={isUpcoming}
+          archivedSlotsLoaded={archivedSlotsLoaded}
+          archivedSlotsTotal={archivedSlotsTotal}
+          loadArchivedSlots={loadArchivedSlots}
+        />
       )}
 
       {slotView === 'calendar' && (
-        <div className="schedule-calendar">
-          <div className="bk-cal-header">
-            <button className="bk-cal-nav" onClick={() => setSlotCal((c) => ({ ...c, month: c.month === 0 ? 11 : c.month - 1, year: c.month === 0 ? c.year - 1 : c.year }))} type="button" aria-label="Previous month">&#8249;</button>
-            <span className="bk-cal-title">{SLOT_MONTHS[slotCal.month]} {slotCal.year}</span>
-            <button className="bk-cal-nav" onClick={() => setSlotCal((c) => ({ ...c, month: c.month === 11 ? 0 : c.month + 1, year: c.month === 11 ? c.year + 1 : c.year }))} type="button" aria-label="Next month">&#8250;</button>
-          </div>
-          <div className="bk-cal-grid">
-            {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => <span className="bk-cal-dow" key={d}>{d}</span>)}
-            {getCalendarDays(slotCal.year, slotCal.month).map((cell, i) => {
-              if (!cell.date) return <span className="bk-cal-cell bk-cal-cell--empty" key={i} />;
-              const count = (slotsByDate[cell.date] || []).length;
-              return (
-                <button
-                  className={`bk-cal-cell schedule-cal-cell${slotCal.selected === cell.date ? ' bk-cal-cell--selected' : ''}${count ? ' schedule-cal-cell--has' : ''}`}
-                  disabled={count === 0}
-                  key={i}
-                  onClick={() => setSlotCal((c) => ({ ...c, selected: c.selected === cell.date ? null : cell.date }))}
-                  type="button"
-                >
-                  {cell.day}
-                  {count > 0 && <span className="schedule-cal-count">{count}</span>}
-                </button>
-              );
-            })}
-          </div>
-          {slotCal.selected && (
-            <p className="schedule-cal-label">Showing {visibleSlots.length} slot{visibleSlots.length !== 1 ? 's' : ''} on {formatDateShort(slotCal.selected)}{' '}
-              <button className="text-button schedule-clear" onClick={() => setSlotCal((c) => ({ ...c, selected: null }))} type="button">Show all</button>
-            </p>
-          )}
-        </div>
+        <SlotCalendarView
+          slotCal={slotCal}
+          setSlotCal={setSlotCal}
+          slotsByDate={slotsByDate}
+          visibleCount={visibleSlots.length}
+        />
       )}
 
-      <div className="user-list">
-        {slotView === 'list' && slotFilter === 'archived' && isLoadingArchivedSlots && (
-          <p className="empty-state">Loading archived slots&hellip;</p>
-        )}
-        {visibleSlots.length === 0 && !adminSlotsError
-          && !(slotFilter === 'archived' && (isLoadingArchivedSlots || archivedSlotsError)) && (
-          <p className="empty-state">{slotView === 'calendar' ? 'No slots.' : `No ${slotFilter} slots.`}</p>
-        )}
-        {visibleSlots.map((slot) => (
-          <div className={`user-row${slot.archived ? ' user-row--archived' : ''}`} key={slot.id}>
-            <div className="row-info">
-              <span>
-                {slot.title}
-                {slot.archived && <span className="archived-pill">Archived</span>}
-              </span>
-              <span className="form-hint">
-                {formatDate(slot.startTime)} &rarr; {formatDate(slot.endTime)} &middot; {slot.bookedCount}/{slot.capacity} booked &middot; Created {formatTimestamp(slot.createdAt)}
-              </span>
-            </div>
-            <button className="text-button" onClick={() => handleDeleteSlot(slot.id)} type="button">
-              Delete
-            </button>
-          </div>
-        ))}
-        {slotView === 'list' && slotFilter === 'archived' && archivedSlotsLoaded
-          && archivedSlots.length < archivedSlotsTotal && (
-          <button
-            className="primary-button compact archived-load-more"
-            disabled={isLoadingArchivedSlots}
-            onClick={() => loadArchivedSlots(archivedSlotsPage + 1)}
-            type="button"
-          >
-            {isLoadingArchivedSlots
-              ? 'Loading'
-              : `Load more (${archivedSlots.length} of ${archivedSlotsTotal})`}
-          </button>
-        )}
-      </div>
+      <SlotList
+        slotView={slotView}
+        slotFilter={slotFilter}
+        visibleSlots={visibleSlots}
+        adminSlotsError={adminSlotsError}
+        archivedSlotsError={archivedSlotsError}
+        isLoadingArchivedSlots={isLoadingArchivedSlots}
+        archivedSlots={archivedSlots}
+        archivedSlotsLoaded={archivedSlotsLoaded}
+        archivedSlotsPage={archivedSlotsPage}
+        archivedSlotsTotal={archivedSlotsTotal}
+        loadArchivedSlots={loadArchivedSlots}
+        formatDate={formatDate}
+        formatTimestamp={formatTimestamp}
+        handleDeleteSlot={handleDeleteSlot}
+      />
     </article>
   );
 }
