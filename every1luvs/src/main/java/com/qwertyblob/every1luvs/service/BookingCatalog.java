@@ -72,6 +72,23 @@ public final class BookingCatalog {
         return Optional.ofNullable(id == null ? null : SERVICES.get(id));
     }
 
+    /**
+     * Total appointment length in minutes for a quote (service + nail art + removal), or empty if
+     * the {@code serviceId} is unknown/missing or either add-on id is unknown. Add-on ids default to
+     * {@link #DEFAULT_ADD_ON} ("none", 0 min) when null, so a bare {@code serviceId} is a complete
+     * quote. This is the single source of a booking's occupied-interval length — shared by the
+     * confirmation quote and the quote-aware availability check.
+     */
+    public static Optional<Integer> totalDurationMin(String serviceId, String nailArtId, String removalId) {
+        Optional<Service> service = service(serviceId);
+        Optional<AddOn> nailArt = nailArt(nailArtId);
+        Optional<AddOn> removal = removal(removalId);
+        if (service.isEmpty() || nailArt.isEmpty() || removal.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(service.get().durationMin() + nailArt.get().durationMin() + removal.get().durationMin());
+    }
+
     public static Optional<AddOn> nailArt(String id) {
         return Optional.ofNullable(NAIL_ART.get(id == null ? DEFAULT_ADD_ON : id));
     }

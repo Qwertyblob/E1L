@@ -168,6 +168,9 @@ describe('App admin — manage slots', () => {
     await gotoSchedule();
 
     await userEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    // A confirmation modal appears; the DELETE only fires after confirming it.
+    expect(callsTo(/\/api\/admin\/slots\/101$/).length).toBe(0);
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete slot' }));
 
     await waitFor(() => expect(callsTo(/\/api\/admin\/slots\/101$/).length).toBe(1));
     const [, opts] = callsTo(/\/api\/admin\/slots\/101$/)[0];
@@ -184,5 +187,51 @@ describe('App admin — manage slots', () => {
     await gotoSchedule();
 
     expect(await screen.findByText('Could not load slots.')).toBeInTheDocument();
+  });
+});
+
+describe('App admin — schedule-row booking actions confirm before firing', () => {
+  // A past (already-ended) BOOKED booking so both Complete and Cancel are enabled on the row.
+  const BOOKING = {
+    id: 55, userName: 'Jane', status: 'BOOKED', slotTitle: 'Gel Mani',
+    slotStartTime: '2025-01-15T09:00:00', slotEndTime: '2025-01-15T10:00:00',
+    createdAt: '2025-01-01T08:00:00Z',
+  };
+
+  test('Complete on a schedule row does not POST until the confirm modal is accepted', async () => {
+    setupFetch([
+      { method: 'GET', path: '/api/admin/bookings', status: 200, body: page([BOOKING]) },
+      { method: 'POST', path: /\/api\/admin\/bookings\/\d+\/complete$/, status: 200, body: null },
+    ]);
+    render(<App />);
+    await gotoSchedule();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Complete' }));
+    // The confirm modal must gate the action — nothing fires on the row click alone.
+    expect(callsTo(/\/api\/admin\/bookings\/55\/complete$/).length).toBe(0);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Mark completed' }));
+    await waitFor(() => expect(callsTo(/\/api\/admin\/bookings\/55\/complete$/).length).toBe(1));
+    const [, opts] = callsTo(/\/api\/admin\/bookings\/55\/complete$/)[0];
+    expect(opts.method).toBe('POST');
+    // reload: /api/admin/bookings fetched again after the action
+    await waitFor(() => expect(callsTo('/api/admin/bookings').length).toBeGreaterThanOrEqual(2));
+  });
+
+  test('Cancel on a schedule row does not POST until the confirm modal is accepted', async () => {
+    setupFetch([
+      { method: 'GET', path: '/api/admin/bookings', status: 200, body: page([BOOKING]) },
+      { method: 'POST', path: /\/api\/admin\/bookings\/\d+\/cancel$/, status: 200, body: null },
+    ]);
+    render(<App />);
+    await gotoSchedule();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    expect(callsTo(/\/api\/admin\/bookings\/55\/cancel$/).length).toBe(0);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel booking' }));
+    await waitFor(() => expect(callsTo(/\/api\/admin\/bookings\/55\/cancel$/).length).toBe(1));
+    const [, opts] = callsTo(/\/api\/admin\/bookings\/55\/cancel$/)[0];
+    expect(opts.method).toBe('POST');
   });
 });

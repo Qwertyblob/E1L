@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import './BookingModal.css';
 import { getCalendarDays } from './slotBuilderUtils';
 import { NAIL_ART, NAIL_SERVICES, REMOVAL } from './services';
@@ -410,6 +410,10 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     notes: '',
   });
   const [availableSlots, setAvailableSlots] = useState([]);
+  // The quote (service + add-ons) that `availableSlots` was actually loaded for. Continuation past
+  // the date/time step is gated on this matching the current quote, so a customer can't proceed on
+  // availability computed for a previous service/add-on selection while a newer fetch is in flight.
+  const [loadedQuoteKey, setLoadedQuoteKey] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [bookingError, setBookingError] = useState('');
   const [attachments, setAttachments] = useState([]);
@@ -459,14 +463,35 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     };
   }, []);
 
+  // Availability is quote-aware: the server checks whether the chosen service's duration still
+  // fits each slot under the scheduling invariant. Re-fetch whenever the quote changes. An
+  // AbortController cancels the in-flight request and a monotonic sequence guards against a slow
+  // earlier-quote response landing after a newer one, so stale data can never overwrite current.
+  const availabilitySeq = useRef(0);
   useEffect(() => {
-    let cancelled = false;
-    fetch(`${API_BASE_URL}/api/slots/available`)
+    // No service chosen yet — nothing to check; availableSlots stays at its initial []. (serviceId
+    // only ever goes null -> a real id, so there's no stale list to clear.)
+    if (!serviceId) return undefined;
+    const seq = (availabilitySeq.current += 1);
+    const quoteKey = `${serviceId}|${nailArt}|${removal}`;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ serviceId });
+    if (nailArt) params.set('nailArtId', nailArt);
+    if (removal) params.set('removalId', removal);
+    fetch(`${API_BASE_URL}/api/slots/available?${params.toString()}`, { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : []))
-      .then((data) => { if (!cancelled) setAvailableSlots(Array.isArray(data) ? data : []); })
-      .catch(() => { if (!cancelled) setAvailableSlots([]); });
-    return () => { cancelled = true; };
-  }, []);
+      .then((data) => {
+        if (seq !== availabilitySeq.current) return;
+        setAvailableSlots(Array.isArray(data) ? data : []);
+        setLoadedQuoteKey(quoteKey);
+      })
+      .catch((err) => {
+        if (err.name === 'AbortError' || seq !== availabilitySeq.current) return;
+        setAvailableSlots([]);
+        setLoadedQuoteKey(quoteKey);
+      });
+    return () => controller.abort();
+  }, [serviceId, nailArt, removal]);
 
   const service = useMemo(
     () => NAIL_SERVICES.find((s) => s.id === serviceId) || null,
@@ -504,9 +529,16 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   const addOnsLabel = formatAddOns(nailArt, removal);
   const deposit = 30;
 
+  const currentQuoteKey = serviceId ? `${serviceId}|${nailArt}|${removal}` : null;
   const canContinue = (() => {
     if (step === 0) return !!service;
-    if (step === 2) return !!date && !!time;
+    // Gate on availability having loaded for the CURRENT quote, and on the picked time still being
+    // offered for it — so a stale selection from a previous service/add-on can't be carried forward.
+    if (step === 2) {
+      return !!date && !!time
+        && loadedQuoteKey === currentQuoteKey
+        && availableTimes.includes(time);
+    }
     if (step === 3) return form.fullName.trim() && form.email.trim();
     if (step === 4) return agreed;
     return true;

@@ -132,9 +132,9 @@ class CsrfTokenPersistenceIntegrationTest {
     @Test
     void logoutWithoutAuthCookie_stillSucceeds_whenCsrfTokenPresent() throws Exception {
         CookieJar jar = new CookieJar();
-        // Anonymous GET to a permitAll endpoint seeds an XSRF-TOKEN without ever authenticating,
-        // mirroring the SPA's first request.
-        send(jar, get("/api/slots/available")).andExpect(status().isOk());
+        // Anonymous GET to a permitAll endpoint seeds an XSRF-TOKEN without ever authenticating.
+        // Availability is quote-aware, so a valid serviceId is supplied.
+        send(jar, get("/api/slots/available").param("serviceId", "classic")).andExpect(status().isOk());
         assertThat(jar.value("XSRF-TOKEN")).isNotBlank();
         assertThat(jar.value("auth_token")).as("no session yet").isNull();
 
@@ -148,7 +148,7 @@ class CsrfTokenPersistenceIntegrationTest {
     @Test
     void logoutWithoutCsrfHeader_isForbidden() throws Exception {
         CookieJar jar = new CookieJar();
-        send(jar, get("/api/slots/available")).andExpect(status().isOk());
+        send(jar, get("/api/slots/available").param("serviceId", "classic")).andExpect(status().isOk());
 
         // CSRF stays enforced on logout (it is deliberately NOT in ignoringRequestMatchers), so a
         // cross-site page holding no XSRF-TOKEN header can't force-logout a signed-in user.

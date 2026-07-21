@@ -2,16 +2,18 @@ package com.qwertyblob.every1luvs.service;
 
 import com.qwertyblob.every1luvs.dto.BatchCreateSlotsRequest;
 import com.qwertyblob.every1luvs.dto.CreateSlotRequest;
+import com.qwertyblob.every1luvs.dto.OccupiedInterval;
 import com.qwertyblob.every1luvs.dto.SlotResponse;
 import com.qwertyblob.every1luvs.dto.UpdateSlotRequest;
 import com.qwertyblob.every1luvs.entity.SlotEntity;
 import com.qwertyblob.every1luvs.repository.BookingRepository;
+import com.qwertyblob.every1luvs.repository.SchedulingLockRepository;
 import com.qwertyblob.every1luvs.repository.SlotRepository;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -26,6 +28,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -33,6 +36,10 @@ class SlotServiceTest {
 
     @Mock SlotRepository slotRepository;
     @Mock BookingRepository bookingRepository;
+    @Mock SchedulingLockRepository schedulingLockRepository;
+    // Real (pure) guard; the finders feeding it drive accept/reject. SchedulingGuardTest covers it
+    // in isolation. Unstubbed finders return empty lists, so unconstrained slots always pass.
+    @Spy SchedulingGuard schedulingGuard = new SchedulingGuard();
 
     @InjectMocks SlotService slotService;
 
@@ -230,24 +237,53 @@ class SlotServiceTest {
         assertThat(result.get(0).capacity()).isEqualTo(1);
     }
 
+    @Test
+    void createSlots_newLowCapacitySlotOverBusyWindow_throws409AndSavesNothing() {
+        // An existing capacity-5 tile covers 09:00–10:00 with two appointments in it. Dropping a
+        // new capacity-1 slot over the same window lowers capacity(t) to min(5,1)=1 < 2, so the
+        // whole batch is rejected before any save.
+        SlotEntity existing = savedSlot(5, 2);
+        existing.setId(2L);
+        when(slotRepository.findActiveSlotsOverlapping(any(), any())).thenReturn(List.of(existing));
+        Instant start = Instant.parse("2099-06-15T09:00:00Z");
+        Instant end = Instant.parse("2099-06-15T10:00:00Z");
+        when(bookingRepository.findActiveOccupiedIntervalsBefore(any())).thenReturn(List.of(
+                new OccupiedInterval(1L, start, end, 60),
+                new OccupiedInterval(2L, start, end, 60)));
+
+        var ex = catchThrowableOfType(
+                () -> slotService.createSlots(new BatchCreateSlotsRequest(List.of(
+                        new CreateSlotRequest("Squeeze-in", null, FUTURE_START, FUTURE_END, 1)))),
+                ResponseStatusException.class);
+
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getReason()).contains("over capacity");
+        verify(slotRepository, never()).save(any());
+    }
+
     // ─── updateSlot ──────────────────────────────────────────────────────────────
 
     @Test
     void updateSlot_happyPath_updatesTitle() {
+        // Title-only change: no time/capacity change, so the guard is skipped. Persisted via
+        // saveAndFlush so a concurrent seat change surfaces as a 409 rather than a commit-time 500.
         SlotEntity slot = savedSlot(5, 2);
         when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
-        when(slotRepository.save(any())).thenReturn(slot);
+        when(slotRepository.saveAndFlush(any())).thenReturn(slot);
 
         SlotResponse response = slotService.updateSlot(1L,
                 new UpdateSlotRequest("New title", null, null, null, null));
 
         assertThat(response.title()).isEqualTo("New title");
+        verify(schedulingLockRepository).acquire();
     }
 
     @Test
     void updateSlot_changeTimeWithBookings_throws409() {
+        // A time change is refused while a non-cancelled booking still points at the slot.
         SlotEntity slot = savedSlot(5, 2);
         when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(bookingRepository.existsNonCancelledBookingBySlotId(1L)).thenReturn(true);
 
         var ex = catchThrowableOfType(
                 () -> slotService.updateSlot(1L,
@@ -258,14 +294,40 @@ class SlotServiceTest {
     }
 
     @Test
-    void updateSlot_reduceCapacityBelowBookedCount_throws409() {
+    void updateSlot_reduceCapacityBelowConcurrentAppointments_throws409() {
+        // Slot 09:00–10:00 capacity 5 with 3 appointments running in that window. Reducing capacity
+        // to 2 would leave those 3 over capacity, so SchedulingGuard rejects.
         SlotEntity slot = savedSlot(5, 3);
         when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        // Only this slot's (old) tile overlaps; the service filters it out and substitutes the
+        // proposed capacity-2 tile.
+        when(slotRepository.findActiveSlotsOverlapping(any(), any())).thenReturn(List.of(slot));
+        Instant start = Instant.parse("2099-06-15T09:00:00Z");
+        Instant end = Instant.parse("2099-06-15T10:00:00Z");
+        when(bookingRepository.findActiveOccupiedIntervalsBefore(any())).thenReturn(List.of(
+                new OccupiedInterval(1L, start, end, 60),
+                new OccupiedInterval(2L, start, end, 60),
+                new OccupiedInterval(3L, start, end, 60)));
 
         var ex = catchThrowableOfType(
                 () -> slotService.updateSlot(1L, new UpdateSlotRequest(null, null, null, null, 2)),
                 ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getReason()).contains("over capacity");
+    }
+
+    @Test
+    void updateSlot_increaseCapacity_skipsGuardAndSaves() {
+        // A capacity increase can never create a violation, so the guard (and its finders) are not
+        // consulted at all.
+        SlotEntity slot = savedSlot(5, 3);
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(slotRepository.saveAndFlush(any())).thenReturn(slot);
+
+        SlotResponse response = slotService.updateSlot(1L, new UpdateSlotRequest(null, null, null, null, 8));
+
+        assertThat(response.capacity()).isEqualTo(8);
+        verify(bookingRepository, never()).findActiveOccupiedIntervalsBefore(any());
     }
 
     @Test
@@ -344,16 +406,32 @@ class SlotServiceTest {
     }
 
     @Test
-    void listAvailableSlots_returnsOnlyAvailable() {
-        // Stubbing the exact cutoff also asserts the service filters by the bookable window:
-        // if it passed a different Instant the stub wouldn't match and the list would be empty.
-        when(slotRepository.findAvailableSlots(BookingWindow.earliestBookableStartUtc()))
-                .thenReturn(List.of(savedSlot(2, 0)));
+    void listAvailableSlots_returnsOnlyGuardApprovedStarts() {
+        // Two candidate slots (both capacity 1). The 09:00 slot already has an appointment covering
+        // its window, so a classic (45m) quote can't fit there; the 11:00 slot is free.
+        // Stubbing the exact cutoff also asserts the service filters by the bookable window.
+        Instant busyStart = Instant.parse("2099-06-15T09:00:00Z");
+        Instant busyEnd = Instant.parse("2099-06-15T10:00:00Z");
+        SlotEntity busy = slotAt(1L, busyStart, busyEnd, 1);
+        SlotEntity free = slotAt(2L, Instant.parse("2099-06-15T11:00:00Z"),
+                Instant.parse("2099-06-15T12:00:00Z"), 1);
+        when(slotRepository.findBookableCandidates(eq(BookingWindow.earliestBookableStartUtc()), any()))
+                .thenReturn(List.of(busy, free));
+        when(slotRepository.findActiveSlotsOverlapping(any(), any())).thenReturn(List.of(busy, free));
+        when(bookingRepository.findActiveOccupiedIntervalsBefore(any()))
+                .thenReturn(List.of(new OccupiedInterval(50L, busyStart, busyEnd, 60)));
 
-        List<SlotResponse> result = slotService.listAvailableSlots();
+        List<SlotResponse> result = slotService.listAvailableSlots("classic", "none", "none");
 
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).available()).isTrue();
+        assertThat(result).extracting(SlotResponse::id).containsExactly(2L);
+    }
+
+    @Test
+    void listAvailableSlots_unknownOrMissingService_throws400() {
+        var ex = catchThrowableOfType(
+                () -> slotService.listAvailableSlots(null, "none", "none"),
+                ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -366,6 +444,17 @@ class SlotServiceTest {
         s.setEndTime(Instant.parse("2099-06-15T10:00:00Z"));
         s.setCapacity(capacity);
         s.setBookedCount(bookedCount);
+        return s;
+    }
+
+    private SlotEntity slotAt(long id, Instant start, Instant end, int capacity) {
+        SlotEntity s = new SlotEntity();
+        s.setId(id);
+        s.setTitle("Session " + id);
+        s.setStartTime(start);
+        s.setEndTime(end);
+        s.setCapacity(capacity);
+        s.setBookedCount(0);
         return s;
     }
 }

@@ -5,6 +5,7 @@ import com.qwertyblob.every1luvs.entity.BookingEntity;
 import com.qwertyblob.every1luvs.entity.SlotEntity;
 import com.qwertyblob.every1luvs.entity.UserEntity;
 import com.qwertyblob.every1luvs.repository.BookingRepository;
+import com.qwertyblob.every1luvs.repository.SchedulingLockRepository;
 import com.qwertyblob.every1luvs.repository.SlotRepository;
 import com.qwertyblob.every1luvs.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,7 @@ class UserServiceTest {
     @Mock UserRepository userRepository;
     @Mock BookingRepository bookingRepository;
     @Mock SlotRepository slotRepository;
+    @Mock SchedulingLockRepository schedulingLockRepository;
 
     @InjectMocks UserService userService;
 
@@ -115,8 +117,9 @@ class UserServiceTest {
     void deleteAccount_releasesActiveSeatsThenDeletesBookingsAndUser() {
         UserEntity alice = user(1L, "Alice", "alice@example.com", "USER");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(alice)); // re-read under the lock
         // Two active bookings on slot 10, one on slot 20, plus a cancelled one that holds no seat.
-        when(bookingRepository.findByUserId(1L)).thenReturn(List.of(
+        when(bookingRepository.findByUserIdForUpdate(1L)).thenReturn(List.of(
                 booking(10L, "BOOKED"),
                 booking(10L, "BOOKED"),
                 booking(20L, "BOOKED"),
@@ -128,7 +131,7 @@ class UserServiceTest {
         userService.deleteAccount("alice@example.com");
 
         ArgumentCaptor<SlotEntity> savedSlots = ArgumentCaptor.forClass(SlotEntity.class);
-        verify(slotRepository, org.mockito.Mockito.times(2)).save(savedSlots.capture());
+        verify(slotRepository, org.mockito.Mockito.times(2)).saveAndFlush(savedSlots.capture());
         assertThat(savedSlots.getAllValues())
                 .extracting(SlotEntity::getId, SlotEntity::getBookedCount)
                 .containsExactlyInAnyOrder(
@@ -143,14 +146,15 @@ class UserServiceTest {
     void deleteAccount_noActiveBookings_skipsSeatReleaseButStillDeletes() {
         UserEntity alice = user(1L, "Alice", "alice@example.com", "USER");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-        when(bookingRepository.findByUserId(1L)).thenReturn(List.of(
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(alice)); // re-read under the lock
+        when(bookingRepository.findByUserIdForUpdate(1L)).thenReturn(List.of(
                 booking(10L, "CANCELLED"),
                 booking(20L, "COMPLETED")
         ));
 
         userService.deleteAccount("alice@example.com");
 
-        verify(slotRepository, never()).save(org.mockito.ArgumentMatchers.any());
+        verify(slotRepository, never()).saveAndFlush(org.mockito.ArgumentMatchers.any());
         verify(bookingRepository).deleteByUserId(1L);
         verify(userRepository).delete(alice);
     }

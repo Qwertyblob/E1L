@@ -68,6 +68,8 @@ class BookingConcurrencyIntegrationTest {
     private static final int CAP = 5;
 
     @Autowired private BookingService bookingService;
+    @Autowired private SlotService slotService;
+    @Autowired private UserService userService;
     @Autowired private UserRepository userRepository;
     @Autowired private SlotRepository slotRepository;
     @Autowired private BookingRepository bookingRepository;
@@ -156,6 +158,164 @@ class BookingConcurrencyIntegrationTest {
                 .filter("CANCELLED"::equals)
                 .count();
         assertThat(cancelled).as("cancelled bookings match committed seat releases").isEqualTo(succeeded);
+    }
+
+    @Test
+    void concurrentConfirmsAcrossOverlappingSlots_capViaMinInstantCapacity() throws Exception {
+        // Two DIFFERENT slot rows covering the same window, each capacity 2 → capacity(t)=min=2.
+        // The old per-slot bookedCount cache would let each row fill to 2 (4 total); the sweep-line
+        // guard counts appointments across both rows against the min, so only 2 succeed overall.
+        Instant start = BookingWindow.earliestBookableStartUtc().plus(Duration.ofDays(2));
+        Instant end = start.plus(Duration.ofHours(2));
+        SlotEntity slotA = saveSlot(start, end, 2);
+        SlotEntity slotB = saveSlot(start, end, 2);
+
+        List<Callable<Integer>> tasks = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            // Distinct users (the user/slot unique index forbids duplicates), alternating rows.
+            Long slotId = (i % 2 == 0) ? slotA.getId() : slotB.getId();
+            UserEntity user = createUser("overlap-" + i + "@test.local");
+            tasks.add(() -> statusOf(() -> bookingService.createBooking(bookingRequest(slotId), user.getEmail(), null)));
+        }
+        List<Integer> results = runSimultaneously(tasks);
+
+        assertThat(results.stream().filter(s -> s == SUCCESS).count())
+                .as("min capacity over the shared window is 2, counted across both rows").isEqualTo(2);
+        assertThat(results.stream().filter(s -> s == 409).count()).isEqualTo(4);
+    }
+
+    @Test
+    void concurrentDeleteAndConfirm_neverStrandsABookingOnADeletedSlot() throws Exception {
+        // The V1 FK is ON DELETE CASCADE, so an unlocked check-then-delete could cascade-delete a
+        // just-inserted booking. Under the shared scheduling lock the two serialize: delete-first =>
+        // the confirmation 404s; confirm-first => delete sees the booking and 409s. Either way no
+        // booking is ever left pointing at a missing slot, and neither raises a 500.
+        Instant start = BookingWindow.earliestBookableStartUtc().plus(Duration.ofDays(2));
+        SlotEntity slot = saveSlot(start, start.plus(Duration.ofHours(2)), 1);
+        UserEntity user = createUser("delete-race@test.local");
+
+        List<Integer> results = runSimultaneously(List.of(
+                () -> statusOf(() -> bookingService.createBooking(bookingRequest(slot.getId()), user.getEmail(), null)),
+                () -> statusOf(() -> { slotService.deleteSlot(slot.getId()); return null; })
+        ));
+
+        assertThat(results.stream().allMatch(s -> s == SUCCESS || s == 409 || s == 404))
+                .as("every outcome is a clean success/conflict/not-found, never a 500").isTrue();
+        // No committed booking may reference a slot that no longer exists.
+        long strandedBookings = bookingRepository.findAll().stream()
+                .filter(b -> slotRepository.findById(b.getSlotId()).isEmpty())
+                .count();
+        assertThat(strandedBookings).as("no booking left on a cascade-deleted slot").isZero();
+    }
+
+    @Test
+    void concurrentConfirmAndAccountDelete_cleanOutcomesAndConsistentBookedCount() throws Exception {
+        // createBooking and deleteAccount both take the scheduling lock then the user row (same
+        // fixed order) and re-read the user under the lock. So a confirmation racing the owner's
+        // account deletion either commits fully (deletion then releases its seat) or 401s cleanly —
+        // never a misleading FK 409/500, and bookedCount never drifts from the live bookings.
+        UserEntity user = createUser("acct-race@test.local");
+        SlotEntity slot = createFutureSlot(2, 1);
+
+        List<Integer> results = runSimultaneously(List.of(
+                () -> statusOf(() -> bookingService.createBooking(bookingRequest(slot.getId()), user.getEmail(), null)),
+                () -> statusOf(() -> { userService.deleteAccount(user.getEmail()); return null; })
+        ));
+
+        assertThat(results.stream().allMatch(s -> s == SUCCESS || s == 401))
+                .as("confirmation either succeeds or cleanly 401s; never 500 or a misleading 409").isTrue();
+        // bookedCount must match the live BOOKED bookings still on the slot (if it survived).
+        long liveBookings = bookingRepository.findAll().stream()
+                .filter(b -> slot.getId().equals(b.getSlotId()) && "BOOKED".equals(b.getStatus()))
+                .count();
+        slotRepository.findById(slot.getId()).ifPresent(after ->
+                assertThat((long) after.getBookedCount())
+                        .as("bookedCount matches live BOOKED bookings on the slot").isEqualTo(liveBookings));
+    }
+
+    @Test
+    void concurrentCancelAndAccountDelete_releasesSeatExactlyOnce() throws Exception {
+        // Capacity-2 slot shared by the user being deleted (alice) and an unaffected user (bob).
+        // Cancellation takes no scheduling lock, so without row-locking the user's bookings the
+        // delete could decrement alice's seat a second time and drive bookedCount below the true
+        // direct-booking count.
+        SlotEntity slot = createFutureSlot(5, 2);
+        slot.setBookedCount(2);
+        slotRepository.save(slot);
+        UserEntity alice = createUser("cancel-del-alice@test.local");
+        BookingEntity aliceBooking = seedBooking(alice, slot);
+        BookingEntity bobBooking = seedBooking(createUser("cancel-del-bob@test.local"), slot);
+
+        List<Integer> results = runSimultaneously(List.of(
+                () -> statusOf(() -> bookingService.adminCancelBooking(aliceBooking.getId())),
+                () -> statusOf(() -> { userService.deleteAccount(alice.getEmail()); return null; })
+        ));
+
+        assertCleanOutcomes(results);
+        assertSeatCountMatchesLiveBookings(slot.getId());
+        assertThat(bookingRepository.findById(bobBooking.getId()).orElseThrow().getStatus())
+                .as("the unaffected user's booking still holds its seat").isEqualTo("BOOKED");
+    }
+
+    @Test
+    void concurrentCompleteAndAccountDelete_releasesSeatExactlyOnce() throws Exception {
+        // Same race via completion (which also takes no scheduling lock). Completion needs the slot
+        // to have ended, so use a past slot.
+        SlotEntity slot = createPastSlot(2);
+        slot.setBookedCount(2);
+        slotRepository.save(slot);
+        UserEntity alice = createUser("done-del-alice@test.local");
+        BookingEntity aliceBooking = seedBooking(alice, slot);
+        BookingEntity bobBooking = seedBooking(createUser("done-del-bob@test.local"), slot);
+
+        List<Integer> results = runSimultaneously(List.of(
+                () -> statusOf(() -> bookingService.adminCompleteBooking(aliceBooking.getId())),
+                () -> statusOf(() -> { userService.deleteAccount(alice.getEmail()); return null; })
+        ));
+
+        assertCleanOutcomes(results);
+        assertSeatCountMatchesLiveBookings(slot.getId());
+        assertThat(bookingRepository.findById(bobBooking.getId()).orElseThrow().getStatus())
+                .as("the unaffected user's booking still holds its seat").isEqualTo("BOOKED");
+    }
+
+    @Test
+    void concurrentOtherUserCancelAndAccountDelete_neverErrorsAndSeatCountStaysConsistent() throws Exception {
+        // Shared capacity-2 slot: alice (being deleted) plus bob (unaffected). deleteAccount locks
+        // only alice's booking rows, so a concurrent cancel of BOB's booking still races the slot
+        // decrement and can bump its version. That must surface as a clean 409, never a 500, and
+        // bookedCount must stay consistent with the live BOOKED bookings.
+        SlotEntity slot = createFutureSlot(5, 2);
+        slot.setBookedCount(2);
+        slotRepository.save(slot);
+        UserEntity alice = createUser("shared-alice@test.local");
+        seedBooking(alice, slot);
+        BookingEntity bobBooking = seedBooking(createUser("shared-bob@test.local"), slot);
+
+        List<Integer> results = runSimultaneously(List.of(
+                () -> statusOf(() -> bookingService.adminCancelBooking(bobBooking.getId())),
+                () -> statusOf(() -> { userService.deleteAccount(alice.getEmail()); return null; })
+        ));
+
+        assertThat(results.stream().allMatch(s -> s == SUCCESS || s == 409))
+                .as("never a 500 — the cancel and the deletion each succeed or cleanly 409").isTrue();
+        assertSeatCountMatchesLiveBookings(slot.getId());
+    }
+
+    // Every outcome is a clean success / conflict / not-found — never a 500. (The cancel/complete
+    // can 404 if the delete removed the booking first, 409 if it lost the transition race.)
+    private void assertCleanOutcomes(List<Integer> results) {
+        assertThat(results.stream().allMatch(s -> s == SUCCESS || s == 409 || s == 404)).isTrue();
+    }
+
+    // bookedCount must equal the BOOKED bookings still pointing at the slot — proving the seat was
+    // released exactly once despite the cancel/complete-vs-delete race.
+    private void assertSeatCountMatchesLiveBookings(Long slotId) {
+        long liveBooked = bookingRepository.findAll().stream()
+                .filter(b -> slotId.equals(b.getSlotId()) && "BOOKED".equals(b.getStatus()))
+                .count();
+        assertThat((long) slotRepository.findById(slotId).orElseThrow().getBookedCount())
+                .as("bookedCount matches live BOOKED bookings on the slot").isEqualTo(liveBooked);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────────────────
