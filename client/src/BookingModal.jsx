@@ -256,13 +256,17 @@ function TermsStep({ agreed, setAgreed, bookingError }) {
   );
 }
 
-// Step 5 — Deposit (final step; shows the fixed-S$30 PayNow QR, then confirms the booking)
-function DepositStep({ deposit, bookingError }) {
+// Step 5 — Deposit (final step; recap + fixed-S$30 PayNow QR, gated on a "paid" confirmation)
+function DepositStep({
+  service, addOns, date, time, total, deposit, depositPaid, setDepositPaid, bookingError,
+}) {
   return (
     <>
-      <p className="bk-prompt">Secure your slot with a S${deposit} PayNow deposit.</p>
+      <BookingSummary service={service} addOns={addOns} date={date} time={time} total={total} />
+      <div className="bk-summary-deposit">
+        <span>Deposit due</span><span>S${deposit}</span>
+      </div>
       <div className="bk-paynow">
-        <p className="bk-paynow-title">PayNow S${deposit}</p>
         <img
           alt={`PayNow S$${deposit} deposit QR code`}
           className="bk-paynow-qr"
@@ -275,6 +279,10 @@ function DepositStep({ deposit, bookingError }) {
           released after 24 hours.
         </p>
       </div>
+      <label className="bk-agree">
+        <input checked={depositPaid} onChange={(e) => setDepositPaid(e.target.checked)} type="checkbox" />
+        <span>I have paid the S${deposit} deposit.</span>
+      </label>
       {bookingError && <p className="bk-booking-error">{bookingError}</p>}
     </>
   );
@@ -426,6 +434,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   const [date, setDate] = useState(null);
   const [time, setTime] = useState(null);
   const [agreed, setAgreed] = useState(false);
+  const [depositPaid, setDepositPaid] = useState(false);
   const [form, setForm] = useState({
     fullName: currentUser?.name || '',
     email: currentUser?.email || '',
@@ -565,6 +574,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     }
     if (step === 3) return form.fullName.trim() && form.email.trim();
     if (step === 4) return agreed;
+    if (step === 5) return depositPaid;
     return true;
   })();
 
@@ -696,7 +706,17 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
                   attachmentError={attachmentError}
                 />,
                 <TermsStep agreed={agreed} setAgreed={setAgreed} bookingError={bookingError} />,
-                <DepositStep deposit={deposit} bookingError={bookingError} />,
+                <DepositStep
+                  service={service}
+                  addOns={addOnsLabel}
+                  date={date}
+                  time={time}
+                  total={total}
+                  deposit={deposit}
+                  depositPaid={depositPaid}
+                  setDepositPaid={setDepositPaid}
+                  bookingError={bookingError}
+                />,
               ][step]}
             </div>
 
