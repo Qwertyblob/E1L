@@ -50,12 +50,19 @@ async function toDetailsStep() {
   await clickContinue(); // step 3 — personal details
 }
 
-// Advance: details (step3) → fill name/email → T&C (step4, the final confirm step).
+// Advance: details (step3) → fill name/email → T&C (step4).
 async function toTermsStep(name = 'Alice', email = 'alice@example.com') {
   await toDetailsStep();
   await userEvent.type(screen.getByLabelText(/Full Name/), name);
   await userEvent.type(screen.getByLabelText(/Email/), email);
   await clickContinue(); // step 4 — T&C
+}
+
+// Advance: T&C (step4) → accept terms → Deposit (step5, the final confirm step with the QR).
+async function toDepositStep(name = 'Alice', email = 'alice@example.com') {
+  await toTermsStep(name, email);
+  await userEvent.click(screen.getByRole('checkbox'));
+  await clickContinue(); // step 5 — Deposit
 }
 
 beforeEach(() => {
@@ -116,13 +123,13 @@ describe('BookingModal — step gating (canContinue)', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
   });
 
-  test('T&C step blocks confirm until the box is checked', async () => {
+  test('T&C step blocks continue until the box is checked', async () => {
     renderModal();
-    await toTermsStep(); // → T&C (step 4, final)
+    await toTermsStep(); // → T&C (step 4)
 
-    expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
     await userEvent.click(screen.getByRole('checkbox'));
-    expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
   });
 });
 
@@ -197,8 +204,7 @@ describe('BookingModal — availability mapping', () => {
 describe('BookingModal — confirm flow', () => {
   test('confirm resolves the matching slot id and submits the expected payload', async () => {
     const { onConfirm } = renderModal();
-    await toTermsStep(); // details filled with Alice / alice@example.com
-    await userEvent.click(screen.getByRole('checkbox'));
+    await toDepositStep(); // details filled with Alice / alice@example.com, terms accepted
     await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
 
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
@@ -217,17 +223,15 @@ describe('BookingModal — confirm flow', () => {
     expect(await screen.findByText("You're all set! 🎉")).toBeInTheDocument();
   });
 
-  test('success screen shows the fixed-S$30 PayNow deposit QR and instructions', async () => {
+  test('deposit step (after T&C) shows the fixed-S$30 PayNow QR', async () => {
     renderModal();
-    await toTermsStep();
-    await userEvent.click(screen.getByRole('checkbox'));
-    await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+    await toDepositStep();
 
-    await screen.findByText("You're all set! 🎉");
-    // Fixed-S$30 PayNow QR (served from /public) + the "secure your slot" prompt.
+    // Still in the wizard on the final Deposit step — the QR + confirm button are shown.
     const qr = screen.getByAltText('PayNow S$30 deposit QR code');
     expect(qr).toHaveAttribute('src', '/paynow-qr.png');
-    expect(screen.getByText('Secure your slot — PayNow S$30')).toBeInTheDocument();
+    expect(screen.getByText('PayNow S$30')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeInTheDocument();
   });
 
   test('attaches an inspo image on the details step and includes it in the payload', async () => {
@@ -244,6 +248,7 @@ describe('BookingModal — confirm flow', () => {
 
     await clickContinue(); // → T&C (step 4)
     await userEvent.click(screen.getByRole('checkbox'));
+    await clickContinue(); // → Deposit (step 5)
     await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
 
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
@@ -256,8 +261,7 @@ describe('BookingModal — confirm flow', () => {
   test('surfaces the error message when onConfirm rejects', async () => {
     const onConfirm = jest.fn().mockRejectedValue(new Error('Slot already taken.'));
     render(<BookingModal onClose={jest.fn()} onConfirm={onConfirm} />);
-    await toTermsStep();
-    await userEvent.click(screen.getByRole('checkbox'));
+    await toDepositStep();
     await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
 
     expect(await screen.findByText('Slot already taken.')).toBeInTheDocument();

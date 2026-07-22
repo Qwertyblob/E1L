@@ -28,7 +28,7 @@ const TERMS = [
   'Prices are subject to change without prior notice. Any price changes will not affect deposits already paid for confirmed bookings.'
 ];
 
-const STEP_LABELS = ['Service', 'Add-ons', 'Date & Time', 'Personal Details', 'T&C'];
+const STEP_LABELS = ['Service', 'Add-ons', 'Date & Time', 'Personal Details', 'T&C', 'Deposit'];
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -256,6 +256,30 @@ function TermsStep({ agreed, setAgreed, bookingError }) {
   );
 }
 
+// Step 5 — Deposit (final step; shows the fixed-S$30 PayNow QR, then confirms the booking)
+function DepositStep({ deposit, bookingError }) {
+  return (
+    <>
+      <p className="bk-prompt">Secure your slot with a S${deposit} PayNow deposit.</p>
+      <div className="bk-paynow">
+        <p className="bk-paynow-title">PayNow S${deposit}</p>
+        <img
+          alt={`PayNow S$${deposit} deposit QR code`}
+          className="bk-paynow-qr"
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          src="/paynow-qr.png"
+        />
+        <p className="bk-paynow-note">
+          Scan with your banking app and pay <strong>S${deposit}</strong>, using <strong>your name</strong> as
+          the payment reference. Your slot is confirmed once we receive it — unpaid deposits are
+          released after 24 hours.
+        </p>
+      </div>
+      {bookingError && <p className="bk-booking-error">{bookingError}</p>}
+    </>
+  );
+}
+
 // Read a File into a transient attachment: base64 `data` for the request plus a `previewUrl`
 // data-URL for the thumbnail. Resolves null if the reader fails so one bad file is skipped.
 function readImageFile(file) {
@@ -384,20 +408,6 @@ function SuccessView({ formEmail, service, addOns, date, time, total, deposit, o
       >
         <p className="bk-summary-note">Deposit of S${deposit} required to confirm slot.</p>
       </BookingSummary>
-      <div className="bk-paynow">
-        <p className="bk-paynow-title">Secure your slot — PayNow S${deposit}</p>
-        <img
-          alt={`PayNow S$${deposit} deposit QR code`}
-          className="bk-paynow-qr"
-          onError={(e) => { e.currentTarget.style.display = 'none'; }}
-          src="/paynow-qr.png"
-        />
-        <p className="bk-paynow-note">
-          Scan with your banking app and pay <strong>S${deposit}</strong>, using <strong>your name</strong> as
-          the payment reference. Your slot is confirmed once we receive it — unpaid deposits are
-          released after 24 hours.
-        </p>
-      </div>
       <button className="bk-btn bk-btn--primary bk-btn--full" onClick={onClose} type="button">Done</button>
     </div>
   );
@@ -686,12 +696,13 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
                   attachmentError={attachmentError}
                 />,
                 <TermsStep agreed={agreed} setAgreed={setAgreed} bookingError={bookingError} />,
+                <DepositStep deposit={deposit} bookingError={bookingError} />,
               ][step]}
             </div>
 
             <footer className="bk-footer">
               {step > 0 && <button className="bk-btn bk-btn--ghost" onClick={back} type="button" disabled={submitting}>Back</button>}
-              {step < 4 ? (
+              {step < 5 ? (
                 <button className={`bk-btn bk-btn--primary${step === 0 ? ' bk-btn--full' : ''}`} disabled={!canContinue} onClick={next} type="button">Continue</button>
               ) : (
                 <button className="bk-btn bk-btn--primary" disabled={!canContinue || submitting} onClick={confirmBooking} type="button">
