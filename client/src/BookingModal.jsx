@@ -384,6 +384,20 @@ function SuccessView({ formEmail, service, addOns, date, time, total, deposit, o
       >
         <p className="bk-summary-note">Deposit of S${deposit} required to confirm slot.</p>
       </BookingSummary>
+      <div className="bk-paynow">
+        <p className="bk-paynow-title">Secure your slot — PayNow S${deposit}</p>
+        <img
+          alt={`PayNow S$${deposit} deposit QR code`}
+          className="bk-paynow-qr"
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          src="/paynow-qr.png"
+        />
+        <p className="bk-paynow-note">
+          Scan with your banking app and pay <strong>S${deposit}</strong>, using <strong>your name</strong> as
+          the payment reference. Your slot is confirmed once we receive it — unpaid deposits are
+          released after 24 hours.
+        </p>
+      </div>
       <button className="bk-btn bk-btn--primary bk-btn--full" onClick={onClose} type="button">Done</button>
     </div>
   );

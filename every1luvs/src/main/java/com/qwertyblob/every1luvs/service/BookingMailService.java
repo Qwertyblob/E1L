@@ -317,7 +317,10 @@ public class BookingMailService {
         if (isMeaningful(booking.removal(), NO_REMOVAL)) {
             body.append("Removal: ").append(booking.removal()).append('\n');
         }
-        body.append("Deposit Paid: S$").append(DEPOSIT_SGD).append(" (applied to your final bill)\n");
+        body.append("Deposit due: S$").append(DEPOSIT_SGD)
+                .append(" — PayNow to secure your slot (scan the QR shown on our website after booking).\n");
+        body.append("Please use your name as the payment reference; the deposit is applied to your final bill.\n");
+        body.append("Slots without a deposit within 24 hours are released.\n");
         body.append("Total Estimate: S$").append(booking.totalPrice()).append("\n\n");
         body.append("We'll send you our studio address in a separate email, 2 days before your appointment.\n\n");
         body.append("Need to reschedule or cancel? Just let us know at least 72 hours in advance.\n\n");

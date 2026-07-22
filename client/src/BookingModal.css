@@ -422,6 +422,15 @@
 .bk-summary-note { color: var(--muted); font-size: 0.8rem; margin: 4px 0 0; }
 .bk-success .bk-btn { margin-top: 24px; width: 100%; }
 
+/* PayNow deposit QR on the success screen */
+.bk-paynow { display: grid; justify-items: center; gap: 12px; margin-top: 24px; width: 100%; }
+.bk-paynow-title { font-family: var(--serif-font); font-size: 1.05rem; font-weight: 700; margin: 0; }
+.bk-paynow-qr {
+  width: 200px; height: 200px; object-fit: contain; background: #fff;
+  border: 1px solid rgba(26, 24, 22, 0.12); border-radius: 12px; padding: 8px;
+}
+.bk-paynow-note { color: var(--muted); font-size: 0.82rem; line-height: 1.6; margin: 0; max-width: 340px; }
+
 @media (max-width: 540px) {
   .bk-backdrop { padding: 12px; }
   .bk-time-grid { grid-template-columns: repeat(4, 1fr); }

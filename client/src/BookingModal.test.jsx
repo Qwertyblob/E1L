@@ -217,6 +217,19 @@ describe('BookingModal — confirm flow', () => {
     expect(await screen.findByText("You're all set! 🎉")).toBeInTheDocument();
   });
 
+  test('success screen shows the fixed-S$30 PayNow deposit QR and instructions', async () => {
+    renderModal();
+    await toTermsStep();
+    await userEvent.click(screen.getByRole('checkbox'));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+
+    await screen.findByText("You're all set! 🎉");
+    // Fixed-S$30 PayNow QR (served from /public) + the "secure your slot" prompt.
+    const qr = screen.getByAltText('PayNow S$30 deposit QR code');
+    expect(qr).toHaveAttribute('src', '/paynow-qr.png');
+    expect(screen.getByText('Secure your slot — PayNow S$30')).toBeInTheDocument();
+  });
+
   test('attaches an inspo image on the details step and includes it in the payload', async () => {
     const { onConfirm } = renderModal();
     await toDetailsStep(); // personal details (step 3), where the uploader lives

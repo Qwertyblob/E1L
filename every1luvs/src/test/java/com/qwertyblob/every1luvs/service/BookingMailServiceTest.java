@@ -56,7 +56,8 @@ class BookingMailServiceTest {
         assertThat(body)
                 .contains("Alice")
                 .contains("Classic Manicure")
-                .contains("Deposit Paid: S$30 (applied to your final bill)")
+                .contains("Deposit due: S$30")
+                .contains("use your name as the payment reference")
                 .contains("Total Estimate: S$60")
                 .contains("15 Jun 2026")
                 .contains("Time: 2:00 PM")               // start time only, no end time
