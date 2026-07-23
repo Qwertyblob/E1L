@@ -258,7 +258,8 @@ function TermsStep({ agreed, setAgreed, bookingError }) {
 
 // Step 5 — Deposit (final step; recap + fixed-S$30 PayNow QR, gated on a "paid" confirmation)
 function DepositStep({
-  service, addOns, date, time, total, deposit, depositPaid, setDepositPaid, bookingError,
+  service, addOns, date, time, total, deposit, depositPaid, setDepositPaid,
+  qrError, onQrLoad, onQrError, bookingError,
 }) {
   return (
     <>
@@ -267,17 +268,33 @@ function DepositStep({
         <span>Deposit due</span><span>S${deposit}</span>
       </div>
       <div className="bk-paynow">
-        <img
-          alt={`PayNow S$${deposit} deposit QR code`}
-          className="bk-paynow-qr"
-          onError={(e) => { e.currentTarget.style.display = 'none'; }}
-          src="/paynow-qr.png"
-        />
-        <p className="bk-paynow-note">
-          Scan with your banking app and pay <strong>S${deposit}</strong>, using <strong>your name</strong> as
-          the payment reference. Your slot is confirmed once we receive it. Unpaid deposits are
-          released after 24 hours.
-        </p>
+        {qrError ? (
+          // The QR is the only payment method shown; if it fails to load, surface an error and
+          // block confirmation (see canContinue) rather than let the customer "confirm" with no
+          // way to pay.
+          <p className="bk-booking-error" role="alert">
+            We couldn't load the payment QR. Please refresh the page and try again, or contact us to
+            arrange your S${deposit} deposit before your appointment.
+          </p>
+        ) : (
+          <>
+            <img
+              alt={`PayNow S$${deposit} deposit QR code`}
+              className="bk-paynow-qr"
+              // Cover the cached case too: if the image is already complete on mount, its load
+              // event may never fire, so confirm here as well.
+              ref={(el) => { if (el && el.complete && el.naturalWidth > 0) onQrLoad(); }}
+              onLoad={onQrLoad}
+              onError={onQrError}
+              src="/paynow-qr.png"
+            />
+            <p className="bk-paynow-note">
+              Scan with your banking app and pay <strong>S${deposit}</strong>, using <strong>your name</strong> as
+              the payment reference. Your slot is confirmed once we receive it. Unpaid deposits are
+              released after 24 hours.
+            </p>
+          </>
+        )}
       </div>
       <label className="bk-agree">
         <input checked={depositPaid} onChange={(e) => setDepositPaid(e.target.checked)} type="checkbox" />
@@ -439,6 +456,10 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   const [time, setTime] = useState(null);
   const [agreed, setAgreed] = useState(false);
   const [depositPaid, setDepositPaid] = useState(false);
+  // The deposit QR is the only payment method on the final step; confirmation is gated on it
+  // having loaded (qrLoaded && !qrError) so a missing/broken asset can't silently permit a booking.
+  const [qrLoaded, setQrLoaded] = useState(false);
+  const [qrError, setQrError] = useState(false);
   const [form, setForm] = useState({
     fullName: currentUser?.name || '',
     email: currentUser?.email || '',
@@ -578,7 +599,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     }
     if (step === 3) return form.fullName.trim() && form.email.trim();
     if (step === 4) return agreed;
-    if (step === 5) return depositPaid;
+    if (step === 5) return depositPaid && qrLoaded && !qrError;
     return true;
   })();
 
@@ -719,6 +740,9 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
                   deposit={deposit}
                   depositPaid={depositPaid}
                   setDepositPaid={setDepositPaid}
+                  qrError={qrError}
+                  onQrLoad={() => setQrLoaded(true)}
+                  onQrError={() => setQrError(true)}
                   bookingError={bookingError}
                 />,
               ][step]}
