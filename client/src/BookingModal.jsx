@@ -28,7 +28,7 @@ const TERMS = [
   'Prices are subject to change without prior notice. Any price changes will not affect deposits already paid for confirmed bookings.'
 ];
 
-const STEP_LABELS = ['Service', 'Add-ons', 'Date & Time', 'Personal Details', 'T&C'];
+const STEP_LABELS = ['Service', 'Add-ons', 'Date & Time', 'Personal Details', 'T&C', 'Deposit'];
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -256,6 +256,73 @@ function TermsStep({ agreed, setAgreed, bookingError }) {
   );
 }
 
+// Step 5 — Deposit (final step; recap + fixed-S$30 PayNow QR, gated on a "paid" confirmation)
+function DepositStep({
+  service, addOns, date, time, total, deposit, depositPaid, setDepositPaid,
+  qrError, onQrLoad, onQrError, bookingError,
+}) {
+  return (
+    <>
+      <BookingSummary service={service} addOns={addOns} date={date} time={time} total={total} />
+      <div className="bk-summary-deposit">
+        <span>Deposit due</span><span>S${deposit}</span>
+      </div>
+      <div className="bk-paynow">
+        {qrError ? (
+          // The QR is the only payment method shown; if it fails to load, surface an error and
+          // block confirmation (see canContinue) rather than let the customer "confirm" with no
+          // way to pay.
+          <p className="bk-booking-error" role="alert">
+            We couldn't load the payment QR. Please refresh the page and try again, or contact us to
+            arrange your S${deposit} deposit before your appointment.
+          </p>
+        ) : (
+          <>
+            <img
+              alt={`PayNow S$${deposit} deposit QR code`}
+              className="bk-paynow-qr"
+              // Cover the cached case too: if the image is already complete on mount, its load
+              // event may never fire, so confirm here as well.
+              ref={(el) => { if (el && el.complete && el.naturalWidth > 0) onQrLoad(); }}
+              onLoad={onQrLoad}
+              onError={onQrError}
+              src="/paynow-qr.png"
+            />
+            <p className="bk-paynow-note">
+              Scan with your banking app and pay <strong>S${deposit}</strong>, using <strong>your name</strong> as
+              the payment reference. Your slot is confirmed once we receive it. Unpaid deposits are
+              released after 24 hours.
+            </p>
+          </>
+        )}
+      </div>
+      <label className="bk-agree">
+        <input checked={depositPaid} onChange={(e) => setDepositPaid(e.target.checked)} type="checkbox" />
+        <span>I have paid the S${deposit} deposit.</span>
+      </label>
+      <p className="bk-summary-note">
+        Deposit payable will be offset against your final bill upon completion of service, subject to
+        compliance with our terms and conditions.
+      </p>
+      {bookingError && (
+        <div className="bk-recovery">
+          <p className="bk-booking-error">{bookingError}</p>
+          {depositPaid && (
+            // The customer marked the deposit paid, but the booking didn't go through. Give a
+            // distinct recovery message so they don't pay again and know how to get a refund /
+            // reschedule (manual, since there's no automated payment record).
+            <p className="bk-recovery-note" role="alert">
+              If you have already paid the S${deposit} deposit, please do <strong>not</strong> pay
+              again. Contact us with your payment receipt and we'll reschedule your appointment or
+              refund your deposit.
+            </p>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 // Read a File into a transient attachment: base64 `data` for the request plus a `previewUrl`
 // data-URL for the thumbnail. Resolves null if the reader fails so one bad file is skipped.
 function readImageFile(file) {
@@ -402,6 +469,11 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   const [date, setDate] = useState(null);
   const [time, setTime] = useState(null);
   const [agreed, setAgreed] = useState(false);
+  const [depositPaid, setDepositPaid] = useState(false);
+  // The deposit QR is the only payment method on the final step; confirmation is gated on it
+  // having loaded (qrLoaded && !qrError) so a missing/broken asset can't silently permit a booking.
+  const [qrLoaded, setQrLoaded] = useState(false);
+  const [qrError, setQrError] = useState(false);
   const [form, setForm] = useState({
     fullName: currentUser?.name || '',
     email: currentUser?.email || '',
@@ -541,6 +613,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     }
     if (step === 3) return form.fullName.trim() && form.email.trim();
     if (step === 4) return agreed;
+    if (step === 5) return depositPaid && qrLoaded && !qrError;
     return true;
   })();
 
@@ -573,13 +646,35 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     return match?.id ?? null;
   }
 
+  // Best-effort, fire-and-forget report to the salon that a deposit may have been paid for a
+  // booking that failed. CSRF-exempt endpoint; a failure here must never affect the recovery UX.
+  function reportDepositClaim(reason) {
+    fetch(`${API_BASE_URL}/api/deposit-claims`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customerName: form.fullName,
+        customerEmail: form.email,
+        phone: form.phone,
+        serviceName: service?.name || null,
+        appointmentDate: date,
+        appointmentTime: time,
+        reason,
+      }),
+    }).catch(() => {});
+  }
+
   async function confirmBooking() {
     if (!canContinue || submitting) return;
     setBookingError('');
 
     const slotId = resolveSlotId();
     if (!slotId) {
-      setBookingError('That time is no longer available. Please pick another slot.');
+      const message = 'That time is no longer available. Please pick another slot.';
+      setBookingError(message);
+      // The deposit may already be paid (Confirm requires it), so alert the salon here too — this
+      // early-return skips the onConfirm() call whose catch normally reports the claim.
+      if (depositPaid) reportDepositClaim(message);
       return;
     }
 
@@ -601,7 +696,11 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
       });
       setDone(true);
     } catch (err) {
-      setBookingError(err?.message || 'Could not complete your booking. Please try again.');
+      const message = err?.message || 'Could not complete your booking. Please try again.';
+      setBookingError(message);
+      // The customer marked the deposit paid but the booking didn't go through. Alert the salon
+      // (best-effort) so they can reconcile the PayNow receipt and reschedule/refund.
+      if (depositPaid) reportDepositClaim(message);
     } finally {
       setSubmitting(false);
     }
@@ -672,12 +771,26 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
                   attachmentError={attachmentError}
                 />,
                 <TermsStep agreed={agreed} setAgreed={setAgreed} bookingError={bookingError} />,
+                <DepositStep
+                  service={service}
+                  addOns={addOnsLabel}
+                  date={date}
+                  time={time}
+                  total={total}
+                  deposit={deposit}
+                  depositPaid={depositPaid}
+                  setDepositPaid={setDepositPaid}
+                  qrError={qrError}
+                  onQrLoad={() => setQrLoaded(true)}
+                  onQrError={() => setQrError(true)}
+                  bookingError={bookingError}
+                />,
               ][step]}
             </div>
 
             <footer className="bk-footer">
               {step > 0 && <button className="bk-btn bk-btn--ghost" onClick={back} type="button" disabled={submitting}>Back</button>}
-              {step < 4 ? (
+              {step < 5 ? (
                 <button className={`bk-btn bk-btn--primary${step === 0 ? ' bk-btn--full' : ''}`} disabled={!canContinue} onClick={next} type="button">Continue</button>
               ) : (
                 <button className="bk-btn bk-btn--primary" disabled={!canContinue || submitting} onClick={confirmBooking} type="button">

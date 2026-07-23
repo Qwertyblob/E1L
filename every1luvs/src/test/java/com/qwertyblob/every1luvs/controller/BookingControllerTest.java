@@ -41,6 +41,7 @@ class BookingControllerTest {
     @Mock BookingMailService bookingMailService;
     @Mock ReviewRequestService reviewRequestService;
     @Mock ImageSanitizer imageSanitizer;
+    @Mock com.qwertyblob.every1luvs.service.DepositClaimService depositClaimService;
 
     // Default controller trusts only the peer address (trustForwardedFor=false); the
     // trust-enabled variant is constructed inline in its own test.
@@ -50,7 +51,7 @@ class BookingControllerTest {
     void setUp() {
         bookingController = new BookingController(
                 bookingService, bookingMailService, reviewRequestService, imageSanitizer,
-                new ClientIpResolver(false));
+                new ClientIpResolver(false), depositClaimService);
     }
 
     private static BookingResponse booking(Long id, String status) {
@@ -107,7 +108,7 @@ class BookingControllerTest {
         // With trust enabled (behind a trusted proxy), the first X-Forwarded-For hop is used.
         BookingController trustingController =
                 new BookingController(bookingService, bookingMailService, reviewRequestService, imageSanitizer,
-                        new ClientIpResolver(true));
+                        new ClientIpResolver(true), depositClaimService);
         HttpServletRequest httpRequest = mock(HttpServletRequest.class);
         when(httpRequest.getHeader("X-Forwarded-For")).thenReturn("198.51.100.7, 10.0.0.1");
         CreateBookingRequest request = new CreateBookingRequest(10L);

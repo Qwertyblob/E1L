@@ -67,7 +67,8 @@ public class SecurityConfig {
                                 "/api/auth/resend-verification-otp",
                                 "/api/auth/forgot-password",
                                 "/api/auth/reset-password",
-                                "/api/bookings"
+                                "/api/bookings",
+                                "/api/deposit-claims"
                         )
                 )
                 .cors(Customizer.withDefaults())
@@ -95,6 +96,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/slots/available").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/bookings").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/deposit-claims").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )

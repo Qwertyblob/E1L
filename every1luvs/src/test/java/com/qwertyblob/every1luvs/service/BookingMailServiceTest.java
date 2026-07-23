@@ -41,6 +41,28 @@ class BookingMailServiceTest {
     }
 
     @Test
+    void sendDepositClaimNotification_emailsAdminWithTheClaimDetails() {
+        service.sendDepositClaimNotification(new com.qwertyblob.every1luvs.dto.DepositClaimRequest(
+                "Alice", "alice@example.com", "9123 4567", "Classic Manicure",
+                "Thu, 30 Jul 2026", "1:30 PM", "This time is fully booked."));
+
+        ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender).send(captor.capture());
+        SimpleMailMessage sent = captor.getValue();
+
+        assertThat(sent.getFrom()).isEqualTo(FROM);
+        assertThat(sent.getTo()).containsExactly(ADMIN);
+        assertThat(sent.getSubject()).contains("Deposit paid but booking");
+        assertThat(sent.getText())
+                .contains("Alice")
+                .contains("alice@example.com")
+                .contains("9123 4567")
+                .contains("Classic Manicure")
+                .contains("This time is fully booked.")
+                .contains("did not complete");
+    }
+
+    @Test
     void sendBookingConfirmation_sendsDetailedMailToCustomer() {
         service.sendBookingConfirmation(booking("alice@example.com", "Tier 1 — Simple", "No removal needed"));
 
