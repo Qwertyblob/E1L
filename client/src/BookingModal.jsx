@@ -670,7 +670,11 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
 
     const slotId = resolveSlotId();
     if (!slotId) {
-      setBookingError('That time is no longer available. Please pick another slot.');
+      const message = 'That time is no longer available. Please pick another slot.';
+      setBookingError(message);
+      // The deposit may already be paid (Confirm requires it), so alert the salon here too — this
+      // early-return skips the onConfirm() call whose catch normally reports the claim.
+      if (depositPaid) reportDepositClaim(message);
       return;
     }
 
