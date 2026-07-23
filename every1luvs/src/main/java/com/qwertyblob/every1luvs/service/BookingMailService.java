@@ -1,6 +1,7 @@
 package com.qwertyblob.every1luvs.service;
 
 import com.qwertyblob.every1luvs.dto.BookingResponse;
+import com.qwertyblob.every1luvs.dto.DepositClaimRequest;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
@@ -295,6 +296,55 @@ public class BookingMailService {
         body.append("Notes: ").append(
                 (booking.notes() == null || booking.notes().isBlank()) ? "—" : booking.notes()).append('\n');
         body.append("Inspo photos attached: ").append(imageCount).append('\n');
+        return body.toString();
+    }
+
+    @Async
+    public void sendDepositClaimNotification(DepositClaimRequest claim) {
+        if (claim == null) {
+            return;
+        }
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setFrom(fromAddress);
+        message.setTo(adminAddress);
+        message.setSubject("[Action needed] Deposit paid but booking did not complete");
+        message.setText(buildDepositClaimBody(claim));
+        try {
+            mailSender.send(message);
+            logger.info("Deposit-claim notification sent to {} for {}",
+                    adminAddress, safe(claim.customerEmail()));
+        } catch (MailException e) {
+            logger.warn("Failed to send deposit-claim notification for {}: {}",
+                    safe(claim.customerEmail()), e.getMessage());
+        }
+    }
+
+    // Relays the customer's failed-deposit report to the salon so they can reconcile the PayNow
+    // receipt and reschedule or refund. Optional fields are omitted when blank.
+    private String buildDepositClaimBody(DepositClaimRequest claim) {
+        StringBuilder body = new StringBuilder();
+        body.append("A customer reported paying the S$").append(DEPOSIT_SGD)
+                .append(" deposit, but their booking did not complete. Please follow up to reschedule or refund.\n\n");
+        body.append("Customer: ").append(safe(claim.customerName()));
+        if (claim.customerEmail() != null && !claim.customerEmail().isBlank()) {
+            body.append(" <").append(claim.customerEmail()).append('>');
+        }
+        body.append('\n');
+        if (claim.phone() != null && !claim.phone().isBlank()) {
+            body.append("Phone: ").append(claim.phone()).append('\n');
+        }
+        if (claim.serviceName() != null && !claim.serviceName().isBlank()) {
+            body.append("Service: ").append(claim.serviceName()).append('\n');
+        }
+        if (claim.appointmentDate() != null && !claim.appointmentDate().isBlank()) {
+            body.append("Requested date: ").append(claim.appointmentDate()).append('\n');
+        }
+        if (claim.appointmentTime() != null && !claim.appointmentTime().isBlank()) {
+            body.append("Requested time: ").append(claim.appointmentTime()).append('\n');
+        }
+        if (claim.reason() != null && !claim.reason().isBlank()) {
+            body.append("Failure message shown to customer: ").append(claim.reason()).append('\n');
+        }
         return body.toString();
     }
 

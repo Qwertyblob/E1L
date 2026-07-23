@@ -646,6 +646,24 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     return match?.id ?? null;
   }
 
+  // Best-effort, fire-and-forget report to the salon that a deposit may have been paid for a
+  // booking that failed. CSRF-exempt endpoint; a failure here must never affect the recovery UX.
+  function reportDepositClaim(reason) {
+    fetch(`${API_BASE_URL}/api/deposit-claims`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customerName: form.fullName,
+        customerEmail: form.email,
+        phone: form.phone,
+        serviceName: service?.name || null,
+        appointmentDate: date,
+        appointmentTime: time,
+        reason,
+      }),
+    }).catch(() => {});
+  }
+
   async function confirmBooking() {
     if (!canContinue || submitting) return;
     setBookingError('');
@@ -674,7 +692,11 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
       });
       setDone(true);
     } catch (err) {
-      setBookingError(err?.message || 'Could not complete your booking. Please try again.');
+      const message = err?.message || 'Could not complete your booking. Please try again.';
+      setBookingError(message);
+      // The customer marked the deposit paid but the booking didn't go through. Alert the salon
+      // (best-effort) so they can reconcile the PayNow receipt and reschedule/refund.
+      if (depositPaid) reportDepositClaim(message);
     } finally {
       setSubmitting(false);
     }

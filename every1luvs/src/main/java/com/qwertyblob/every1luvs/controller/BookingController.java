@@ -2,10 +2,12 @@ package com.qwertyblob.every1luvs.controller;
 
 import com.qwertyblob.every1luvs.dto.BookingResponse;
 import com.qwertyblob.every1luvs.dto.CreateBookingRequest;
+import com.qwertyblob.every1luvs.dto.DepositClaimRequest;
 import com.qwertyblob.every1luvs.dto.PageResponse;
 import com.qwertyblob.every1luvs.security.ClientIpResolver;
 import com.qwertyblob.every1luvs.service.BookingMailService;
 import com.qwertyblob.every1luvs.service.BookingService;
+import com.qwertyblob.every1luvs.service.DepositClaimService;
 import com.qwertyblob.every1luvs.service.ImageSanitizer;
 import com.qwertyblob.every1luvs.service.ReviewRequestService;
 import com.qwertyblob.every1luvs.service.SanitizedImage;
@@ -34,19 +36,22 @@ public class BookingController {
     private final ReviewRequestService reviewRequestService;
     private final ImageSanitizer imageSanitizer;
     private final ClientIpResolver clientIpResolver;
+    private final DepositClaimService depositClaimService;
 
     public BookingController(
             BookingService bookingService,
             BookingMailService bookingMailService,
             ReviewRequestService reviewRequestService,
             ImageSanitizer imageSanitizer,
-            ClientIpResolver clientIpResolver
+            ClientIpResolver clientIpResolver,
+            DepositClaimService depositClaimService
     ) {
         this.bookingService = bookingService;
         this.bookingMailService = bookingMailService;
         this.reviewRequestService = reviewRequestService;
         this.imageSanitizer = imageSanitizer;
         this.clientIpResolver = clientIpResolver;
+        this.depositClaimService = depositClaimService;
     }
 
     // Public, CSRF-exempt guest booking. It is never attributed to a logged-in user, so a
@@ -86,6 +91,19 @@ public class BookingController {
 
     private String clientIp(HttpServletRequest request) {
         return clientIpResolver.resolve(request);
+    }
+
+    // Public, CSRF-exempt: the client fires this best-effort when a booking fails after the customer
+    // marked the deposit paid, so the salon is alerted to reconcile the PayNow receipt and
+    // reschedule/refund. Rate-limited per IP in the service (it emails the salon). Returns 202 either
+    // way — a fire-and-forget notification must not surface as a second error to the customer.
+    @PostMapping("/deposit-claims")
+    public ResponseEntity<Void> reportDepositClaim(
+            @RequestBody DepositClaimRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        depositClaimService.submit(request, clientIp(httpRequest));
+        return ResponseEntity.accepted().build();
     }
 
     @GetMapping("/bookings/my")

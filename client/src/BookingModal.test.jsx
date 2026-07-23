@@ -293,6 +293,12 @@ describe('BookingModal — confirm flow', () => {
     expect(await screen.findByText('Slot already taken.')).toBeInTheDocument();
     // Deposit was marked paid, so a distinct do-not-pay-again recovery message is shown too.
     expect(screen.getByText(/contact us with your payment receipt/i)).toBeInTheDocument();
+    // ...and the salon is alerted best-effort (POST /api/deposit-claims) so they can reconcile.
+    await waitFor(() => expect(
+      global.fetch.mock.calls.some(
+        ([url, opts]) => String(url).includes('/api/deposit-claims') && opts?.method === 'POST',
+      ),
+    ).toBe(true));
     expect(screen.queryByText("You're all set! 🎉")).not.toBeInTheDocument();
   });
 
