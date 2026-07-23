@@ -404,7 +404,14 @@
 .bk-btn--full { flex: 1; }
 
 /* Success */
-.bk-success { display: grid; justify-items: center; padding: 44px 32px 32px; text-align: center; }
+.bk-success {
+  display: grid;
+  justify-items: center;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 44px 32px 32px;
+  text-align: center;
+}
 .bk-success-check {
   align-items: center;
   background: var(--charcoal);
