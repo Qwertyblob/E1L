@@ -291,6 +291,8 @@ describe('BookingModal — confirm flow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
 
     expect(await screen.findByText('Slot already taken.')).toBeInTheDocument();
+    // Deposit was marked paid, so a distinct do-not-pay-again recovery message is shown too.
+    expect(screen.getByText(/contact us with your payment receipt/i)).toBeInTheDocument();
     expect(screen.queryByText("You're all set! 🎉")).not.toBeInTheDocument();
   });
 

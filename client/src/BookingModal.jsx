@@ -304,7 +304,21 @@ function DepositStep({
         Deposit payable will be offset against your final bill upon completion of service, subject to
         compliance with our terms and conditions.
       </p>
-      {bookingError && <p className="bk-booking-error">{bookingError}</p>}
+      {bookingError && (
+        <div className="bk-recovery">
+          <p className="bk-booking-error">{bookingError}</p>
+          {depositPaid && (
+            // The customer marked the deposit paid, but the booking didn't go through. Give a
+            // distinct recovery message so they don't pay again and know how to get a refund /
+            // reschedule (manual, since there's no automated payment record).
+            <p className="bk-recovery-note" role="alert">
+              If you have already paid the S${deposit} deposit, please do <strong>not</strong> pay
+              again. Contact us with your payment receipt and we'll reschedule your appointment or
+              refund your deposit.
+            </p>
+          )}
+        </div>
+      )}
     </>
   );
 }

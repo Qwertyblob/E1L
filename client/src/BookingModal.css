@@ -431,6 +431,20 @@
 }
 .bk-paynow-note { color: var(--muted); font-size: 0.82rem; line-height: 1.6; margin: 0; max-width: 340px; }
 
+/* Recovery message when a booking fails after the deposit was marked paid */
+.bk-recovery { width: 100%; }
+.bk-recovery-note {
+  background: #fdf3e7;
+  border: 1px solid rgba(26, 24, 22, 0.16);
+  border-radius: 10px;
+  color: var(--charcoal);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  text-align: left;
+}
+
 @media (max-width: 540px) {
   .bk-backdrop { padding: 12px; }
   .bk-time-grid { grid-template-columns: repeat(4, 1fr); }
