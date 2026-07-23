@@ -283,6 +283,10 @@ function DepositStep({
         <input checked={depositPaid} onChange={(e) => setDepositPaid(e.target.checked)} type="checkbox" />
         <span>I have paid the S${deposit} deposit.</span>
       </label>
+      <p className="bk-summary-note">
+        Deposit payable will be offset against your final bill upon completion of service, subject to
+        compliance with our terms and conditions.
+      </p>
       {bookingError && <p className="bk-booking-error">{bookingError}</p>}
     </>
   );
