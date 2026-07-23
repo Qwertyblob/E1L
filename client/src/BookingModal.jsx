@@ -275,7 +275,7 @@ function DepositStep({
         />
         <p className="bk-paynow-note">
           Scan with your banking app and pay <strong>S${deposit}</strong>, using <strong>your name</strong> as
-          the payment reference. Your slot is confirmed once we receive it — unpaid deposits are
+          the payment reference. Your slot is confirmed once we receive it. Unpaid deposits are
           released after 24 hours.
         </p>
       </div>
