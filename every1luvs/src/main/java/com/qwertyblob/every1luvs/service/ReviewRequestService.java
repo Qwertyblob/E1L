@@ -130,6 +130,7 @@ public class ReviewRequestService {
                 booking.getRemoval(),
                 booking.getTotalPrice(),
                 booking.getStatus(),
+                booking.getConfirmedAt(),
                 booking.getCreatedAt()
         );
     }

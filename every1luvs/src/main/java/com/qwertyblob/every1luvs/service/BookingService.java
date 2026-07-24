@@ -441,6 +441,13 @@ public class BookingService {
         if (!"BOOKED".equals(booking.getStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This booking is no longer active.");
         }
+        // A still-pending booking was never confirmed (no client email, deposit unverified), so it
+        // must not be completable — otherwise Pending → Completed would fire the review email for a
+        // client who was never told their booking went through.
+        if (booking.getConfirmedAt() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Confirm this booking before completing it.");
+        }
 
         SlotEntity slot = loadSlotOrThrow(booking.getSlotId());
         // Can't complete an appointment that hasn't ended yet. Completion fires the review email
@@ -465,6 +472,73 @@ public class BookingService {
         slot.setBookedCount(Math.max(0, slot.getBookedCount() - 1));
         saveSlotOrConflict(slot);
 
+        UserEntity user = booking.getUserId() != null
+                ? userRepository.findById(booking.getUserId()).orElse(null)
+                : null;
+        return toResponse(booking, slot, user);
+    }
+
+    // Outcome of an admin confirm. newlyConfirmed is true only when this call won the atomic
+    // markConfirmed claim, so the controller sends the client confirmation email exactly on the
+    // first confirm and skips it on retries/duplicate requests.
+    public record ConfirmResult(BookingResponse booking, boolean newlyConfirmed) {
+    }
+
+    // Admin confirms a pending booking (after seeing the deposit): stamps confirmed_at and lets
+    // the client confirmation email go out. The booking already holds its BOOKED seat, so nothing
+    // touches capacity here. Idempotent under retries — a second confirm returns the booking with
+    // newlyConfirmed = false and sends no further email.
+    @Transactional
+    public ConfirmResult adminConfirmBooking(Long bookingId) {
+        // 404 for no such visible booking; 409 if it exists but is no longer BOOKED.
+        BookingEntity booking = bookingRepository.findByIdAndArchivedAtIsNull(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Active booking not found."));
+        if (!"BOOKED".equals(booking.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This booking is no longer active.");
+        }
+
+        Instant now = Instant.now();
+        boolean newlyConfirmed;
+        if (bookingRepository.markConfirmed(bookingId, now) == 1) {
+            booking.setConfirmedAt(now);
+            newlyConfirmed = true;
+        } else {
+            // markConfirmed changed 0 rows AND its clearAutomatically detached the row we first
+            // read, so 0 doesn't by itself mean "already confirmed" — a cancel/archival could have
+            // raced in between. Reload and revalidate to tell a legitimate resend (still BOOKED +
+            // confirmed) from a booking that slipped out of BOOKED.
+            booking = bookingRepository.findByIdAndArchivedAtIsNull(bookingId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                            "Active booking not found."));
+            if (!"BOOKED".equals(booking.getStatus())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "This booking is no longer active.");
+            }
+            if (booking.getConfirmedAt() == null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "This booking could not be confirmed. Please retry.");
+            }
+            newlyConfirmed = false;
+        }
+
+        SlotEntity slot = loadSlotOrThrow(booking.getSlotId());
+        UserEntity user = booking.getUserId() != null
+                ? userRepository.findById(booking.getUserId()).orElse(null)
+                : null;
+        return new ConfirmResult(toResponse(booking, slot, user), newlyConfirmed);
+    }
+
+    // Explicit admin resend of the client confirmation email for an already-confirmed booking
+    // (recovers a lost/failed first send). At-least-once by design: the controller always sends.
+    @Transactional(readOnly = true)
+    public BookingResponse resendConfirmation(Long bookingId) {
+        BookingEntity booking = bookingRepository.findByIdAndArchivedAtIsNull(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Active booking not found."));
+        if (!"BOOKED".equals(booking.getStatus()) || booking.getConfirmedAt() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This booking isn't confirmed yet.");
+        }
+        SlotEntity slot = loadSlotOrThrow(booking.getSlotId());
         UserEntity user = booking.getUserId() != null
                 ? userRepository.findById(booking.getUserId()).orElse(null)
                 : null;
@@ -542,6 +616,7 @@ public class BookingService {
                 booking.getRemoval(),
                 booking.getTotalPrice(),
                 booking.getStatus(),
+                booking.getConfirmedAt(),
                 booking.getCreatedAt()
         );
     }

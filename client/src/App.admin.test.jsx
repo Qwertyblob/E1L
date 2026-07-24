@@ -191,11 +191,12 @@ describe('App admin — manage slots', () => {
 });
 
 describe('App admin — schedule-row booking actions confirm before firing', () => {
-  // A past (already-ended) BOOKED booking so both Complete and Cancel are enabled on the row.
+  // A past (already-ended) confirmed BOOKED booking so Complete/Cancel/Resend are enabled on the
+  // row. Confirmed bookings live under the Upcoming tab (the default tab is now Pending).
   const BOOKING = {
     id: 55, userName: 'Jane', status: 'BOOKED', slotTitle: 'Gel Mani',
     slotStartTime: '2025-01-15T09:00:00', slotEndTime: '2025-01-15T10:00:00',
-    createdAt: '2025-01-01T08:00:00Z',
+    confirmedAt: '2025-01-02T08:00:00Z', createdAt: '2025-01-01T08:00:00Z',
   };
 
   test('Complete on a schedule row does not POST until the confirm modal is accepted', async () => {
@@ -205,6 +206,7 @@ describe('App admin — schedule-row booking actions confirm before firing', () 
     ]);
     render(<App />);
     await gotoSchedule();
+    await userEvent.click(await screen.findByRole('button', { name: 'Upcoming (1)' }));
 
     await userEvent.click(await screen.findByRole('button', { name: 'Complete' }));
     // The confirm modal must gate the action — nothing fires on the row click alone.
@@ -225,6 +227,7 @@ describe('App admin — schedule-row booking actions confirm before firing', () 
     ]);
     render(<App />);
     await gotoSchedule();
+    await userEvent.click(await screen.findByRole('button', { name: 'Upcoming (1)' }));
 
     await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
     expect(callsTo(/\/api\/admin\/bookings\/55\/cancel$/).length).toBe(0);
@@ -233,5 +236,43 @@ describe('App admin — schedule-row booking actions confirm before firing', () 
     await waitFor(() => expect(callsTo(/\/api\/admin\/bookings\/55\/cancel$/).length).toBe(1));
     const [, opts] = callsTo(/\/api\/admin\/bookings\/55\/cancel$/)[0];
     expect(opts.method).toBe('POST');
+  });
+
+  // A pending (unconfirmed) booking lives under the default Pending tab with Confirm/Cancel.
+  const PENDING_BOOKING = {
+    id: 77, userName: 'Mia', status: 'BOOKED', slotTitle: 'Gel Mani',
+    slotStartTime: '2099-01-15T09:00:00', slotEndTime: '2099-01-15T10:00:00',
+    confirmedAt: null, createdAt: '2025-01-01T08:00:00Z',
+  };
+
+  test('Confirm on a pending row POSTs to /confirm only after the modal is accepted', async () => {
+    setupFetch([
+      { method: 'GET', path: '/api/admin/bookings', status: 200, body: page([PENDING_BOOKING]) },
+      { method: 'POST', path: /\/api\/admin\/bookings\/\d+\/confirm$/, status: 200, body: null },
+    ]);
+    render(<App />);
+    await gotoSchedule();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
+    expect(callsTo(/\/api\/admin\/bookings\/77\/confirm$/).length).toBe(0);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Confirm booking' }));
+    await waitFor(() => expect(callsTo(/\/api\/admin\/bookings\/77\/confirm$/).length).toBe(1));
+    expect(callsTo(/\/api\/admin\/bookings\/77\/confirm$/)[0][1].method).toBe('POST');
+  });
+
+  test('Resend on a confirmed row POSTs specifically to /resend-confirmation (not /confirm)', async () => {
+    setupFetch([
+      { method: 'GET', path: '/api/admin/bookings', status: 200, body: page([BOOKING]) },
+      { method: 'POST', path: /\/api\/admin\/bookings\/\d+\/resend-confirmation$/, status: 200, body: null },
+    ]);
+    render(<App />);
+    await gotoSchedule();
+    await userEvent.click(await screen.findByRole('button', { name: 'Upcoming (1)' }));
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Resend' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Resend email' }));
+    await waitFor(() => expect(callsTo(/\/api\/admin\/bookings\/55\/resend-confirmation$/).length).toBe(1));
+    expect(callsTo(/\/api\/admin\/bookings\/55\/confirm$/).length).toBe(0);
   });
 });

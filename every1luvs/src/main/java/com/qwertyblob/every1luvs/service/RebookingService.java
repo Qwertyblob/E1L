@@ -115,6 +115,7 @@ public class RebookingService {
                 booking.getRemoval(),
                 booking.getTotalPrice(),
                 booking.getStatus(),
+                booking.getConfirmedAt(),
                 booking.getCreatedAt()
         );
     }

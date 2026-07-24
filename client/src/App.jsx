@@ -139,7 +139,7 @@ function App() {
   const [activeView, setActiveView] = useState('landing');
   const [profileTab, setProfileTab] = useState('bookings');
   const [scheduleView, setScheduleView] = useState('list');
-  const [scheduleFilter, setScheduleFilter] = useState('upcoming');
+  const [scheduleFilter, setScheduleFilter] = useState('pending');
   const [scheduleCal, setScheduleCal] = useState(() => {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth(), selected: null };
@@ -616,6 +616,7 @@ function App() {
   }
 
   function statusClass(status) {
+    if (status === 'PENDING') return 'status-pending';
     if (status === 'BOOKED') return 'status-booked';
     if (status === 'COMPLETED') return 'status-completed';
     return 'status-cancelled';
@@ -718,6 +719,26 @@ function App() {
     }
   }
 
+  async function handleAdminConfirmBooking(bookingId) {
+    try {
+      await apiRequest(`/api/admin/bookings/${bookingId}/confirm`, { method: 'POST' });
+      loadAdminBookings();
+    } catch (error) {
+      setAdminBookingsError(error.message);
+    }
+  }
+
+  // Distinct endpoint from confirm so an ordinary confirm retry never re-sends; resend is the
+  // explicit at-least-once recovery for an already-confirmed booking.
+  async function handleResendConfirmation(bookingId) {
+    try {
+      await apiRequest(`/api/admin/bookings/${bookingId}/resend-confirmation`, { method: 'POST' });
+      loadAdminBookings();
+    } catch (error) {
+      setAdminBookingsError(error.message);
+    }
+  }
+
   // Run the action queued by the admin confirm modal, then close it. The wrapped handlers set their
   // own error messages and don't throw, so this only manages the modal's busy/open state.
   async function runAdminConfirm() {
@@ -763,6 +784,26 @@ function App() {
     });
   }
 
+  function requestConfirmBooking(bookingId) {
+    setAdminConfirm({
+      title: 'Confirm this booking?',
+      message: 'This confirms the booking and emails the client. Only confirm after the deposit has been received.',
+      confirmLabel: 'Confirm booking',
+      busyLabel: 'Confirming…',
+      run: () => handleAdminConfirmBooking(bookingId),
+    });
+  }
+
+  function requestResendConfirmation(bookingId) {
+    setAdminConfirm({
+      title: 'Resend confirmation email?',
+      message: 'This re-sends the confirmation email to the client. Use it if the first email never arrived.',
+      confirmLabel: 'Resend email',
+      busyLabel: 'Sending…',
+      run: () => handleResendConfirmation(bookingId),
+    });
+  }
+
   async function loadAdminUsers(page = 0) {
     setAdminError('');
     setIsLoadingAdmin(true);
@@ -780,9 +821,17 @@ function App() {
   }
 
   const isAdmin = user?.role === 'ADMIN';
-  const SCHEDULE_STATUS = { upcoming: 'BOOKED', completed: 'COMPLETED', cancelled: 'CANCELLED' };
-  // Calendar only surfaces upcoming (still-active) bookings.
-  const upcomingBookings = adminBookings.filter((b) => b.status === 'BOOKED');
+  // Pending and Upcoming are both status BOOKED, split by whether the admin has confirmed
+  // (confirmedAt). Confirmation gates the client email and this Pending/Upcoming view; capacity
+  // is still governed by BOOKED, so a pending booking already holds its seat.
+  const SCHEDULE_PREDICATE = {
+    pending: (b) => b.status === 'BOOKED' && !b.confirmedAt,
+    upcoming: (b) => b.status === 'BOOKED' && b.confirmedAt,
+    completed: (b) => b.status === 'COMPLETED',
+    cancelled: (b) => b.status === 'CANCELLED',
+  };
+  // Calendar surfaces confirmed upcoming bookings only; pending ones aren't on the schedule yet.
+  const upcomingBookings = adminBookings.filter(SCHEDULE_PREDICATE.upcoming);
   const bookingsByDate = upcomingBookings.reduce((acc, b) => {
     const day = b.slotStartTime ? String(b.slotStartTime).slice(0, 10) : '';
     if (!day) return acc;
@@ -791,7 +840,7 @@ function App() {
   }, {});
   const scheduleSelectedBookings = scheduleView === 'calendar'
     ? (scheduleCal.selected ? (bookingsByDate[scheduleCal.selected] || []) : upcomingBookings)
-    : adminBookings.filter((b) => b.status === SCHEDULE_STATUS[scheduleFilter]);
+    : adminBookings.filter(SCHEDULE_PREDICATE[scheduleFilter] || (() => false));
 
   async function handleConfirmBooking(selection) {
     // Logged-in bookings use the CSRF-protected endpoint; guests use the public one.
@@ -841,6 +890,14 @@ function App() {
       onComplete={(id) => {
         setBookingDetail(null);
         requestCompleteBooking(id);
+      }}
+      onConfirm={(id) => {
+        setBookingDetail(null);
+        requestConfirmBooking(id);
+      }}
+      onResend={(id) => {
+        setBookingDetail(null);
+        requestResendConfirmation(id);
       }}
       onCancel={(id) => {
         setBookingDetail(null);
@@ -901,6 +958,8 @@ function App() {
         setBookingDetail={setBookingDetail}
         handleAdminCompleteBooking={requestCompleteBooking}
         handleAdminCancelBooking={requestCancelBooking}
+        handleAdminConfirmBooking={requestConfirmBooking}
+        handleResendConfirmation={requestResendConfirmation}
         loadAdminUsers={loadAdminUsers}
         isLoadingAdmin={isLoadingAdmin}
         adminError={adminError}

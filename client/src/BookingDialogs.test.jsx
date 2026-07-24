@@ -11,11 +11,15 @@ const baseProps = {
   formatTimestamp: (s) => s || '—',
   onClose: jest.fn(),
   onComplete: jest.fn(),
+  onConfirm: jest.fn(),
+  onResend: jest.fn(),
   onCancel: jest.fn(),
 };
 
+// A confirmed booking (confirmedAt set) so the completion gate — not the pending confirm flow —
+// is exercised.
 function makeBooking(slotEndTime) {
-  return { id: 1, status: 'BOOKED', slotEndTime, slotStartTime: slotEndTime };
+  return { id: 1, status: 'BOOKED', confirmedAt: '2020-01-01T00:00:00Z', slotEndTime, slotStartTime: slotEndTime };
 }
 
 describe('BookingDetailModal — completion gate (B4)', () => {
@@ -27,6 +31,20 @@ describe('BookingDetailModal — completion gate (B4)', () => {
   test('Mark completed is enabled once the appointment has ended', () => {
     render(<BookingDetailModal {...baseProps} bookingDetail={makeBooking('2020-01-01T10:00:00Z')} />);
     expect(screen.getByRole('button', { name: 'Mark completed' })).toBeEnabled();
+  });
+});
+
+describe('BookingDetailModal — pending confirmation', () => {
+  const pendingBooking = { id: 2, status: 'BOOKED', confirmedAt: null, slotEndTime: '2999-01-01T10:00:00Z', slotStartTime: '2999-01-01T10:00:00Z' };
+
+  test('a pending booking shows Confirm (not Mark completed) and wires onConfirm', async () => {
+    const onConfirm = jest.fn();
+    render(<BookingDetailModal {...baseProps} onConfirm={onConfirm} bookingDetail={pendingBooking} />);
+
+    expect(screen.queryByRole('button', { name: 'Mark completed' })).not.toBeInTheDocument();
+    expect(screen.getByText('PENDING')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm booking' }));
+    expect(onConfirm).toHaveBeenCalledWith(2);
   });
 });
 

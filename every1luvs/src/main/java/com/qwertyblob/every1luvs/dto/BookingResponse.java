@@ -20,6 +20,7 @@ public record BookingResponse(
         String removal,
         Integer totalPrice,
         String status,
+        Instant confirmedAt,
         Instant createdAt
 ) {
 }

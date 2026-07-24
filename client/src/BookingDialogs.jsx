@@ -46,8 +46,13 @@ export function ConfirmDialog({ request, isBusy, onCancel, onConfirm, dialogRef 
   );
 }
 
-export function BookingDetailModal({ bookingDetail, bookingDetailRef, statusClass, formatDate, formatTimestamp, onClose, onComplete, onCancel }) {
+export function BookingDetailModal({ bookingDetail, bookingDetailRef, statusClass, formatDate, formatTimestamp, onClose, onComplete, onConfirm, onResend, onCancel }) {
   if (!bookingDetail) return null;
+
+  // Pending = a BOOKED booking the admin hasn't confirmed yet; show it as PENDING (not BOOKED)
+  // and offer Confirm instead of Complete.
+  const pending = bookingDetail.status === 'BOOKED' && !bookingDetail.confirmedAt;
+  const displayStatus = pending ? 'PENDING' : bookingDetail.status;
 
   return (
     <div className="confirm-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -56,7 +61,7 @@ export function BookingDetailModal({ bookingDetail, bookingDetailRef, statusClas
           <h3 className="confirm-title">Booking #{bookingDetail.id}</h3>
           <button className="auth-modal-close" onClick={onClose} type="button" aria-label="Close">&times;</button>
         </div>
-        <strong className={`detail-status ${statusClass(bookingDetail.status)}`}>{bookingDetail.status}</strong>
+        <strong className={`detail-status ${statusClass(displayStatus)}`}>{displayStatus}</strong>
         <dl className="detail-list">
           <div><dt>Name</dt><dd>{bookingDetail.userName || '—'}</dd></div>
           <div><dt>Email</dt><dd>{bookingDetail.customerEmail || '—'}</dd></div>
@@ -74,15 +79,26 @@ export function BookingDetailModal({ bookingDetail, bookingDetailRef, statusClas
         </dl>
         {bookingDetail.status === 'BOOKED' && (
           <div className="detail-actions">
-            <button
-              className="bk-btn bk-btn--ghost"
-              onClick={() => onComplete(bookingDetail.id)}
-              type="button"
-              disabled={!appointmentEnded(bookingDetail)}
-              title={appointmentEnded(bookingDetail) ? undefined : 'Can only complete after the appointment has ended'}
-            >
-              Mark completed
-            </button>
+            {pending ? (
+              <button className="bk-btn bk-btn--ghost" onClick={() => onConfirm(bookingDetail.id)} type="button">
+                Confirm booking
+              </button>
+            ) : (
+              <>
+                <button
+                  className="bk-btn bk-btn--ghost"
+                  onClick={() => onComplete(bookingDetail.id)}
+                  type="button"
+                  disabled={!appointmentEnded(bookingDetail)}
+                  title={appointmentEnded(bookingDetail) ? undefined : 'Can only complete after the appointment has ended'}
+                >
+                  Mark completed
+                </button>
+                <button className="bk-btn bk-btn--ghost" onClick={() => onResend(bookingDetail.id)} type="button">
+                  Resend email
+                </button>
+              </>
+            )}
             <button className="bk-btn bk-btn--primary" onClick={() => onCancel(bookingDetail.id)} type="button">
               Cancel booking
             </button>

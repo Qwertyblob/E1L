@@ -430,12 +430,13 @@ function SuccessView({ formEmail, service, addOns, date, time, total, deposit, o
   return (
     <div className="bk-success">
       <div className="bk-success-check"><CheckIcon /></div>
-      <h2 className="bk-success-title">You're all set! 🎉</h2>
+      <h2 className="bk-success-title">Booking request received 🎉</h2>
       <p className="bk-success-sub">
         Time to give your hands the love they deserve.
         <br /><br />
-        A confirmation email has been sent to {maskEmail(formEmail)}. Our studio address will follow
-        in a separate email 2 days before your appointment.
+        We've received your request. Once your deposit is verified we'll confirm your appointment and
+        email your confirmation to {maskEmail(formEmail)}. Our studio address follows in a separate
+        email 2 days before your appointment.
         <br /><br />
         Thank you for booking with us, we'll have you leaving with fresh nails and good vibes.
         <br /><br />

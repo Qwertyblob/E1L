@@ -706,6 +706,93 @@ class BookingServiceTest {
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
 
+    // ─── adminConfirmBooking / resendConfirmation ─────────────────────────────────
+
+    @Test
+    void adminConfirmBooking_pending_stampsConfirmedAndReportsNewlyConfirmed() {
+        when(bookingRepository.findByIdAndArchivedAtIsNull(10L)).thenReturn(Optional.of(pendingBooking()));
+        when(bookingRepository.markConfirmed(anyLong(), any())).thenReturn(1);
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot(3, 1)));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user()));
+
+        BookingService.ConfirmResult result = bookingService.adminConfirmBooking(10L);
+
+        assertThat(result.newlyConfirmed()).isTrue();
+        assertThat(result.booking().confirmedAt()).isNotNull();
+    }
+
+    @Test
+    void adminConfirmBooking_notFound_throws404() {
+        when(bookingRepository.findByIdAndArchivedAtIsNull(99L)).thenReturn(Optional.empty());
+        var ex = catchThrowableOfType(() -> bookingService.adminConfirmBooking(99L), ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        verify(bookingRepository, never()).markConfirmed(anyLong(), any());
+    }
+
+    @Test
+    void adminConfirmBooking_notBooked_throws409() {
+        when(bookingRepository.findByIdAndArchivedAtIsNull(10L)).thenReturn(Optional.of(booking("CANCELLED")));
+        var ex = catchThrowableOfType(() -> bookingService.adminConfirmBooking(10L), ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        verify(bookingRepository, never()).markConfirmed(anyLong(), any());
+    }
+
+    @Test
+    void adminConfirmBooking_alreadyConfirmed_isIdempotentNoOp() {
+        // Claim changes 0 rows because it's already confirmed; reload shows a confirmed BOOKED
+        // booking, so it's a legitimate no-op (no email) rather than an error.
+        when(bookingRepository.findByIdAndArchivedAtIsNull(10L)).thenReturn(Optional.of(booking("BOOKED")));
+        when(bookingRepository.markConfirmed(anyLong(), any())).thenReturn(0);
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot(3, 1)));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user()));
+
+        BookingService.ConfirmResult result = bookingService.adminConfirmBooking(10L);
+
+        assertThat(result.newlyConfirmed()).isFalse();
+    }
+
+    @Test
+    void adminConfirmBooking_cancelWinsRace_throws409() {
+        // Claim changes 0 rows because a cancel raced in after the first read; reload shows the
+        // booking is no longer BOOKED, so confirm fails rather than falsely "resending".
+        when(bookingRepository.findByIdAndArchivedAtIsNull(10L))
+                .thenReturn(Optional.of(pendingBooking()), Optional.of(booking("CANCELLED")));
+        when(bookingRepository.markConfirmed(anyLong(), any())).thenReturn(0);
+
+        var ex = catchThrowableOfType(() -> bookingService.adminConfirmBooking(10L), ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void resendConfirmation_confirmedBooking_returnsResponse() {
+        when(bookingRepository.findByIdAndArchivedAtIsNull(10L)).thenReturn(Optional.of(booking("BOOKED")));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot(3, 1)));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user()));
+
+        BookingResponse response = bookingService.resendConfirmation(10L);
+
+        assertThat(response.id()).isEqualTo(10L);
+    }
+
+    @Test
+    void resendConfirmation_pendingBooking_throws409() {
+        when(bookingRepository.findByIdAndArchivedAtIsNull(10L)).thenReturn(Optional.of(pendingBooking()));
+        var ex = catchThrowableOfType(() -> bookingService.resendConfirmation(10L), ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void adminCompleteBooking_pendingBooking_throws409() {
+        // A never-confirmed booking must not be completable (would fire the review email for a
+        // client who was never told their booking went through).
+        when(bookingRepository.findByIdAndArchivedAtIsNull(10L)).thenReturn(Optional.of(pendingBooking()));
+
+        var ex = catchThrowableOfType(() -> bookingService.adminCompleteBooking(10L), ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getReason()).contains("Confirm this booking");
+        verify(bookingRepository, never()).transitionFromBooked(anyLong(), anyString());
+    }
+
     // ─── helpers ─────────────────────────────────────────────────────────────────
 
     private UserEntity user() {
@@ -730,12 +817,21 @@ class BookingServiceTest {
         return s;
     }
 
+    // Default helper booking is already admin-confirmed, so complete/cancel tests exercise the
+    // post-confirmation lifecycle. Pending (unconfirmed) bookings use pendingBooking().
     private BookingEntity booking(String status) {
         BookingEntity b = new BookingEntity();
         b.setId(10L);
         b.setSlotId(1L);
         b.setUserId(1L);
         b.setStatus(status);
+        b.setConfirmedAt(Instant.EPOCH);
+        return b;
+    }
+
+    private BookingEntity pendingBooking() {
+        BookingEntity b = booking("BOOKED");
+        b.setConfirmedAt(null);
         return b;
     }
 }

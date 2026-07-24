@@ -222,7 +222,8 @@ describe('BookingModal — confirm flow', () => {
         date: DATE_STR,
       }),
     );
-    expect(await screen.findByText("You're all set! 🎉")).toBeInTheDocument();
+    expect(await screen.findByText('Booking request received 🎉')).toBeInTheDocument();
+    expect(await screen.findByText(/Once your deposit is verified/)).toBeInTheDocument();
   });
 
   test('deposit step shows the recap + QR and gates confirm on QR load + the "paid" checkbox', async () => {
