@@ -89,6 +89,17 @@ public interface BookingRepository extends JpaRepository<BookingEntity, Long> {
     int transitionFromBookedForUser(@Param("id") Long id, @Param("userId") Long userId,
                                     @Param("newStatus") String newStatus);
 
+    // Atomic confirm claim (admin): stamps confirmed_at on a still-pending BOOKED booking and
+    // reports how many rows changed (1 = this call won the claim → send the confirmation email;
+    // 0 = already confirmed, or concurrently cancelled/archived → caller reloads to tell which).
+    // No own @Transactional: runs inside adminConfirmBooking's transaction. clearAutomatically
+    // keeps the persistence context from serving a stale copy afterwards.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE BookingEntity b SET b.confirmedAt = :now "
+            + "WHERE b.id = :id AND b.status = 'BOOKED' "
+            + "AND b.archivedAt IS NULL AND b.confirmedAt IS NULL")
+    int markConfirmed(@Param("id") Long id, @Param("now") Instant now);
+
     // A slot can't be deleted while a non-cancelled (active or completed) booking still
     // points at it; cancelled bookings are terminal and get cleaned up with the slot.
     // Archived bookings don't count — they're invisible in the UI, and letting them
@@ -130,6 +141,7 @@ public interface BookingRepository extends JpaRepository<BookingEntity, Long> {
     // the slot since BookingEntity holds slot_id as a plain value, not a mapped relation.
     @Query("SELECT b FROM BookingEntity b, SlotEntity s WHERE b.slotId = s.id "
             + "AND b.status = 'BOOKED' AND b.archivedAt IS NULL AND b.reminderSentAt IS NULL "
+            + "AND b.confirmedAt IS NOT NULL "
             + "AND s.startTime > :now AND s.startTime <= :windowEnd "
             + "ORDER BY s.startTime ASC")
     List<BookingEntity> findDueForReminder(@Param("now") Instant now, @Param("windowEnd") Instant windowEnd);

@@ -252,7 +252,8 @@ public class BookingMailService {
                 helper.addAttachment(image.filename(), new ByteArrayResource(image.data()), image.contentType());
             }
 
-            helper.setSubject("New booking #" + booking.id() + " — " + safe(booking.userName()));
+            helper.setSubject("New booking pending confirmation #" + booking.id()
+                    + " — verify deposit (" + safe(booking.userName()) + ")");
             helper.setText(buildAdminBody(booking, attached.size()));
 
             mailSender.send(message);
@@ -269,7 +270,9 @@ public class BookingMailService {
     // removed). Add-on lines are always shown so the admin gets the complete record at a glance.
     private String buildAdminBody(BookingResponse booking, int imageCount) {
         StringBuilder body = new StringBuilder();
-        body.append("A new appointment has been booked.\n\n");
+        body.append("A new appointment is pending confirmation.\n");
+        body.append("Once the deposit is received, confirm it in the admin dashboard to send the "
+                + "client their confirmation email.\n\n");
         body.append("Booking reference: #").append(booking.id()).append('\n');
         body.append("Status: ").append(safe(booking.status())).append('\n');
         body.append("Customer: ").append(safe(booking.userName()));

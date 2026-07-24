@@ -112,6 +112,7 @@ public class ReminderService {
                 booking.getRemoval(),
                 booking.getTotalPrice(),
                 booking.getStatus(),
+                booking.getConfirmedAt(),
                 booking.getCreatedAt()
         );
     }

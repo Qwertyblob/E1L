@@ -37,7 +37,7 @@ class BookingMailServiceTest {
                 Instant.parse("2026-06-15T14:00:00Z"), Instant.parse("2026-06-15T15:00:00Z"),
                 1L, "Alice", email, "123", "@alice", "notes",
                 "Classic Manicure", "Senior Technician", nailArt, removal,
-                60, "BOOKED", Instant.EPOCH);
+                60, "BOOKED", Instant.EPOCH, Instant.EPOCH);
     }
 
     @Test

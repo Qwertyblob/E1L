@@ -52,7 +52,7 @@ class ReviewRequestServiceTest {
                 Instant.parse("2026-06-15T14:00:00Z"), Instant.parse("2026-06-15T15:00:00Z"),
                 1L, "Alice", "alice@example.com", "123", "@alice", "notes",
                 "Classic Manicure", null, "Tier 1 — Simple", "No removal needed",
-                60, "COMPLETED", Instant.EPOCH);
+                60, "COMPLETED", Instant.EPOCH, Instant.EPOCH);
     }
 
     // --- Immediate on-complete path ---

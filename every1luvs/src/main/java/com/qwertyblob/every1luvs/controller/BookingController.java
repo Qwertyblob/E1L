@@ -57,8 +57,8 @@ public class BookingController {
             HttpServletRequest httpRequest
     ) {
         BookingResponse created = bookingService.createBooking(request, null, clientIp(httpRequest));
-        // Post-commit (createBooking has returned) + @Async, so a mail failure can't fail the booking.
-        bookingMailService.sendBookingConfirmation(created);
+        // No client confirmation email here: it now goes out only when the admin confirms the
+        // booking (after verifying the deposit) via adminConfirmBooking below.
         // Re-encode client images into server-owned bytes before they ever reach the inbox, then send
         // the admin a full copy of every booking (all details + sanitized inspo photos), best-effort.
         List<SanitizedImage> images = imageSanitizer.sanitize(request.attachments());
@@ -75,8 +75,8 @@ public class BookingController {
             HttpServletRequest httpRequest
     ) {
         BookingResponse created = bookingService.createBooking(request, authentication.getName(), clientIp(httpRequest));
-        // Post-commit (createBooking has returned) + @Async, so a mail failure can't fail the booking.
-        bookingMailService.sendBookingConfirmation(created);
+        // No client confirmation email here: it now goes out only when the admin confirms the
+        // booking (after verifying the deposit) via adminConfirmBooking below.
         // Re-encode client images into server-owned bytes before they ever reach the inbox, then send
         // the admin a full copy of every booking (all details + sanitized inspo photos), best-effort.
         List<SanitizedImage> images = imageSanitizer.sanitize(request.attachments());
@@ -118,5 +118,27 @@ public class BookingController {
         // bookings reach here, so no-shows are never asked; dormant until a review URL is set.
         reviewRequestService.sendReviewRequestNow(completed);
         return completed;
+    }
+
+    @PostMapping("/admin/bookings/{id}/confirm")
+    @PreAuthorize("hasRole('ADMIN')")
+    public BookingResponse adminConfirmBooking(@PathVariable Long id) {
+        BookingService.ConfirmResult result = bookingService.adminConfirmBooking(id);
+        // Send the client confirmation only on the winning claim, so an ordinary retry / second
+        // tab / duplicate request never re-sends. Post-commit + @Async, so a mail failure can't
+        // fail the confirmation.
+        if (result.newlyConfirmed()) {
+            bookingMailService.sendBookingConfirmation(result.booking());
+        }
+        return result.booking();
+    }
+
+    @PostMapping("/admin/bookings/{id}/resend-confirmation")
+    @PreAuthorize("hasRole('ADMIN')")
+    public BookingResponse resendConfirmation(@PathVariable Long id) {
+        BookingResponse booking = bookingService.resendConfirmation(id);
+        // Explicit admin resend (recovers a lost first send) — at-least-once by design.
+        bookingMailService.sendBookingConfirmation(booking);
+        return booking;
     }
 }

@@ -67,6 +67,14 @@ public class BookingEntity {
     @Column(nullable = false)
     private String status;
 
+    // When the admin confirmed this booking (null = pending, awaiting deposit verification).
+    // Set by BookingService.adminConfirmBooking once the deposit is seen; only then does the
+    // client confirmation email go out. Capacity is still governed by status = 'BOOKED', so a
+    // pending booking already holds its seat — this flag only gates the email + the admin's
+    // Pending vs Upcoming split.
+    @Column(name = "confirmed_at")
+    private Instant confirmedAt;
+
     // Soft-archive marker (null = active). Stamped by ArchivalService 1 year after the
     // booking's slot end_time; archived bookings disappear from customer/admin listings
     // (they appear deleted in the frontend) but stay in the table.
@@ -146,6 +154,9 @@ public class BookingEntity {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public Instant getConfirmedAt() { return confirmedAt; }
+    public void setConfirmedAt(Instant confirmedAt) { this.confirmedAt = confirmedAt; }
 
     public Instant getArchivedAt() { return archivedAt; }
     public void setArchivedAt(Instant archivedAt) { this.archivedAt = archivedAt; }

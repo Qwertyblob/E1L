@@ -302,6 +302,41 @@ class BookingConcurrencyIntegrationTest {
         assertSeatCountMatchesLiveBookings(slot.getId());
     }
 
+    @Test
+    void adminConfirmBooking_confirmsPendingBooking_andIsIdempotentAgainstRealDb() {
+        // Exercises the real markConfirmed claim (JPQL @Modifying) inside the service transaction.
+        SlotEntity slot = createFutureSlot(1, 5);
+        BookingEntity pending = seedBooking(createUser("confirm-int@test.local"), slot);
+        assertThat(pending.getConfirmedAt()).as("seeded bookings start pending").isNull();
+
+        var first = bookingService.adminConfirmBooking(pending.getId());
+        assertThat(first.newlyConfirmed()).as("first confirm wins the claim").isTrue();
+        assertThat(bookingRepository.findById(pending.getId()).orElseThrow().getConfirmedAt())
+                .as("confirmed_at is now stamped in the DB").isNotNull();
+
+        var second = bookingService.adminConfirmBooking(pending.getId());
+        assertThat(second.newlyConfirmed()).as("a repeat confirm is a no-op, not a duplicate").isFalse();
+    }
+
+    @Test
+    void findDueForReminder_excludesUnconfirmedBookings() {
+        // Two bookings on the same in-window slot: one confirmed, one still pending. Only the
+        // confirmed one is due for a reminder.
+        Instant now = BookingWindow.currentBusinessWallClockUtc();
+        SlotEntity slot = saveSlot(now.plus(Duration.ofDays(1)),
+                now.plus(Duration.ofDays(1)).plus(Duration.ofHours(2)), 5);
+        BookingEntity confirmed = seedBooking(createUser("rem-confirmed@test.local"), slot);
+        confirmed.setConfirmedAt(now);
+        bookingRepository.save(confirmed);
+        BookingEntity pending = seedBooking(createUser("rem-pending@test.local"), slot);
+
+        List<Long> due = bookingRepository.findDueForReminder(now, now.plus(Duration.ofDays(2)))
+                .stream().map(BookingEntity::getId).toList();
+
+        assertThat(due).as("confirmed in-window booking is due").contains(confirmed.getId());
+        assertThat(due).as("pending booking is never reminded").doesNotContain(pending.getId());
+    }
+
     // Every outcome is a clean success / conflict / not-found — never a 500. (The cancel/complete
     // can 404 if the delete removed the booking first, 409 if it lost the transition race.)
     private void assertCleanOutcomes(List<Integer> results) {

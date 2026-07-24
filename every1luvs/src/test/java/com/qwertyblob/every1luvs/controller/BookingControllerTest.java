@@ -56,7 +56,7 @@ class BookingControllerTest {
     private static BookingResponse booking(Long id, String status) {
         return new BookingResponse(id, 10L, "Slot", Instant.EPOCH, Instant.EPOCH, 1L, "Alice",
                 "alice@example.com", "123", "@alice", "notes", "Manicure", "Tech", "art", "none",
-                5000, status, Instant.EPOCH);
+                5000, status, Instant.EPOCH, Instant.EPOCH);
     }
 
     // ─── createBooking ───────────────────────────────────────────────────────────
@@ -77,7 +77,8 @@ class BookingControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(response.getBody()).isEqualTo(created);
-        verify(bookingMailService).sendBookingConfirmation(created);
+        // No client confirmation email on create — it now waits for admin confirmation.
+        verify(bookingMailService, never()).sendBookingConfirmation(any());
         // The admin notification gets the SANITIZED images, never the raw client attachments.
         verify(bookingMailService).sendAdminBookingNotification(eq(created), eq(sanitized));
     }
@@ -98,7 +99,8 @@ class BookingControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(response.getBody()).isEqualTo(created);
-        verify(bookingMailService).sendBookingConfirmation(created);
+        // No client confirmation email on create — it now waits for admin confirmation.
+        verify(bookingMailService, never()).sendBookingConfirmation(any());
         verify(bookingMailService).sendAdminBookingNotification(eq(created), eq(sanitized));
     }
 
@@ -176,5 +178,37 @@ class BookingControllerTest {
         assertThat(bookingController.adminCompleteBooking(1L)).isEqualTo(completed);
         // Completing a booking kicks off the post-appointment review request (dormant unless enabled).
         verify(reviewRequestService).sendReviewRequestNow(completed);
+    }
+
+    @Test
+    void adminConfirmBooking_newlyConfirmed_sendsClientConfirmationOnce() {
+        BookingResponse confirmed = booking(1L, "BOOKED");
+        when(bookingService.adminConfirmBooking(1L))
+                .thenReturn(new BookingService.ConfirmResult(confirmed, true));
+
+        assertThat(bookingController.adminConfirmBooking(1L)).isEqualTo(confirmed);
+        // Winning the confirm claim sends the client their confirmation exactly once.
+        verify(bookingMailService).sendBookingConfirmation(confirmed);
+    }
+
+    @Test
+    void adminConfirmBooking_alreadyConfirmed_sendsNoEmail() {
+        BookingResponse confirmed = booking(1L, "BOOKED");
+        when(bookingService.adminConfirmBooking(1L))
+                .thenReturn(new BookingService.ConfirmResult(confirmed, false));
+
+        assertThat(bookingController.adminConfirmBooking(1L)).isEqualTo(confirmed);
+        // A retry / duplicate confirm didn't win the claim, so no second email goes out.
+        verify(bookingMailService, never()).sendBookingConfirmation(any());
+    }
+
+    @Test
+    void resendConfirmation_alwaysSendsClientConfirmation() {
+        BookingResponse confirmed = booking(1L, "BOOKED");
+        when(bookingService.resendConfirmation(1L)).thenReturn(confirmed);
+
+        assertThat(bookingController.resendConfirmation(1L)).isEqualTo(confirmed);
+        // Resend is the explicit at-least-once recovery path — it always sends.
+        verify(bookingMailService).sendBookingConfirmation(confirmed);
     }
 }

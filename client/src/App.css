@@ -446,6 +446,12 @@ input:focus {
   white-space: nowrap;
 }
 
+.status-pending {
+  color: #b7791f;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
 .change-password-form {
   display: grid;
   gap: 16px;
@@ -487,6 +493,7 @@ input:focus {
 .user-row strong.status-booked { color: #2563cc; }
 .user-row strong.status-completed { color: #1f9d57; }
 .user-row strong.status-cancelled { color: var(--coral); }
+.user-row strong.status-pending { color: #b7791f; }
 
 /* Slot builder */
 .slot-builder {

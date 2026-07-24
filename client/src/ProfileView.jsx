@@ -287,6 +287,8 @@ function ScheduleBookingsPanel({
   setBookingDetail,
   handleAdminCompleteBooking,
   handleAdminCancelBooking,
+  handleAdminConfirmBooking,
+  handleResendConfirmation,
   formatDate,
   statusClass,
 }) {
@@ -309,11 +311,12 @@ function ScheduleBookingsPanel({
       {scheduleView === 'list' && (
         <div className="profile-tabs" role="tablist">
           {[
-            { id: 'upcoming', label: 'Upcoming', status: 'BOOKED' },
-            { id: 'completed', label: 'Completed', status: 'COMPLETED' },
-            { id: 'cancelled', label: 'Cancelled', status: 'CANCELLED' },
+            { id: 'pending', label: 'Pending', match: (b) => b.status === 'BOOKED' && !b.confirmedAt },
+            { id: 'upcoming', label: 'Upcoming', match: (b) => b.status === 'BOOKED' && b.confirmedAt },
+            { id: 'completed', label: 'Completed', match: (b) => b.status === 'COMPLETED' },
+            { id: 'cancelled', label: 'Cancelled', match: (b) => b.status === 'CANCELLED' },
           ].map((f) => {
-            const count = adminBookings.filter((b) => b.status === f.status).length;
+            const count = adminBookings.filter(f.match).length;
             return (
               <button
                 className={`profile-tab${scheduleFilter === f.id ? ' profile-tab--active' : ''}`}
@@ -370,7 +373,10 @@ function ScheduleBookingsPanel({
               : `No ${scheduleFilter} bookings.`}
           </p>
         )}
-        {scheduleSelectedBookings.map((booking) => (
+        {scheduleSelectedBookings.map((booking) => {
+          const pending = booking.status === 'BOOKED' && !booking.confirmedAt;
+          const displayStatus = pending ? 'PENDING' : booking.status;
+          return (
           <div
             className="user-row user-row--clickable"
             key={booking.id}
@@ -385,27 +391,44 @@ function ScheduleBookingsPanel({
                 {booking.slotTitle} &middot; {formatDate(booking.slotStartTime)}
               </span>
             </div>
-            <strong className={statusClass(booking.status)}>
-              {booking.status}
+            <strong className={statusClass(displayStatus)}>
+              {displayStatus}
             </strong>
             {booking.status === 'BOOKED' && (
               <div className="schedule-row-actions">
-                <button
-                  className="text-button"
-                  onClick={(e) => { e.stopPropagation(); handleAdminCompleteBooking(booking.id); }}
-                  type="button"
-                  disabled={!appointmentEnded(booking)}
-                  title={appointmentEnded(booking) ? undefined : 'Can only complete after the appointment has ended'}
-                >
-                  Complete
-                </button>
-                <button className="text-button" onClick={(e) => { e.stopPropagation(); handleAdminCancelBooking(booking.id); }} type="button">
-                  Cancel
-                </button>
+                {pending ? (
+                  <>
+                    <button className="text-button" onClick={(e) => { e.stopPropagation(); handleAdminConfirmBooking(booking.id); }} type="button">
+                      Confirm
+                    </button>
+                    <button className="text-button" onClick={(e) => { e.stopPropagation(); handleAdminCancelBooking(booking.id); }} type="button">
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="text-button"
+                      onClick={(e) => { e.stopPropagation(); handleAdminCompleteBooking(booking.id); }}
+                      type="button"
+                      disabled={!appointmentEnded(booking)}
+                      title={appointmentEnded(booking) ? undefined : 'Can only complete after the appointment has ended'}
+                    >
+                      Complete
+                    </button>
+                    <button className="text-button" onClick={(e) => { e.stopPropagation(); handleResendConfirmation(booking.id); }} type="button">
+                      Resend
+                    </button>
+                    <button className="text-button" onClick={(e) => { e.stopPropagation(); handleAdminCancelBooking(booking.id); }} type="button">
+                      Cancel
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </article>
   );
@@ -1116,6 +1139,8 @@ function ScheduleTab(props) {
         setBookingDetail={props.setBookingDetail}
         handleAdminCompleteBooking={props.handleAdminCompleteBooking}
         handleAdminCancelBooking={props.handleAdminCancelBooking}
+        handleAdminConfirmBooking={props.handleAdminConfirmBooking}
+        handleResendConfirmation={props.handleResendConfirmation}
         formatDate={props.formatDate}
         statusClass={props.statusClass}
       />
@@ -1213,6 +1238,8 @@ function ProfileView({
   setBookingDetail,
   handleAdminCompleteBooking,
   handleAdminCancelBooking,
+  handleAdminConfirmBooking,
+  handleResendConfirmation,
   loadAdminUsers,
   isLoadingAdmin,
   adminError,
@@ -1355,6 +1382,8 @@ function ProfileView({
             setBookingDetail={setBookingDetail}
             handleAdminCompleteBooking={handleAdminCompleteBooking}
             handleAdminCancelBooking={handleAdminCancelBooking}
+            handleAdminConfirmBooking={handleAdminConfirmBooking}
+            handleResendConfirmation={handleResendConfirmation}
             loadAdminUsers={loadAdminUsers}
             isLoadingAdmin={isLoadingAdmin}
             adminError={adminError}
