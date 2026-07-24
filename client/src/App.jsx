@@ -23,6 +23,32 @@ import { useFocusTrap } from './useFocusTrap';
 // VITE_API_URL only if the API is served from a different origin.
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
+// Scroll `el` to the top of the viewport over `duration` ms. We animate manually
+// (instead of native scrollIntoView({ behavior: 'smooth' })) because the native
+// speed isn't configurable — larger duration = slower scroll. Falls back to an
+// instant jump when reduced motion is preferred or rAF is unavailable.
+function smoothScrollTo(el, duration = 1200) {
+  if (typeof window === 'undefined' || !el) return;
+  const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
+  const destination = startY + el.getBoundingClientRect().top;
+  const reduceMotion = window.matchMedia
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduceMotion || !window.requestAnimationFrame || duration <= 0) {
+    window.scrollTo(0, destination);
+    return;
+  }
+  const distance = destination - startY;
+  const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  let startTime = null;
+  function step(now) {
+    if (startTime === null) startTime = now;
+    const progress = Math.min((now - startTime) / duration, 1);
+    window.scrollTo(0, startY + distance * ease(progress));
+    if (progress < 1) window.requestAnimationFrame(step);
+  }
+  window.requestAnimationFrame(step);
+}
+
 const galleryImages = [
   imgExpressManicure,
   imgClassicManicure,
@@ -372,7 +398,7 @@ function App() {
   useEffect(() => {
     if (pendingScroll && activeView === 'landing') {
       const el = document.getElementById(pendingScroll);
-      if (el) el.scrollIntoView({ behavior: 'smooth' });
+      if (el) smoothScrollTo(el);
       // Intentional: clear the one-shot scroll request after performing the scroll.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setPendingScroll(null);
@@ -406,7 +432,8 @@ function App() {
       setActiveView('landing');
       setPendingScroll(id);
     } else {
-      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+      const el = document.getElementById(id);
+      if (el) smoothScrollTo(el);
     }
   }
 
