@@ -55,7 +55,7 @@ public class BookingMailService {
     private static final String STUDIO_TRANSPORT =
             "Toa Payoh HDB Hub Car Park / Toa Payoh MRT Station";
     private static final String INSTAGRAM_HANDLE = "@every1luvsnails";
-    private static final String INSTAGRAM_URL = "https://instagram.com/every1luvsnails";
+    private static final String INSTAGRAM_URL = "https://instagram.com/every1luvss.co";
 
     private final JavaMailSender mailSender;
     private final String fromAddress;
