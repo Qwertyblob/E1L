@@ -32,11 +32,15 @@ class BookingMailServiceTest {
             new BookingMailService(mailSender, FROM, ADMIN, REVIEW_URL, BOOKING_URL);
 
     private static BookingResponse booking(String email, String nailArt, String removal) {
+        return booking(email, nailArt, removal, null);
+    }
+
+    private static BookingResponse booking(String email, String nailArt, String removal, String repairs) {
         return new BookingResponse(
                 7L, 10L, "Manicure slot",
                 Instant.parse("2026-06-15T14:00:00Z"), Instant.parse("2026-06-15T15:00:00Z"),
                 1L, "Alice", email, "123", "@alice", "notes",
-                "Classic Manicure", "Senior Technician", nailArt, removal,
+                "Classic Manicure", "Senior Technician", nailArt, removal, repairs,
                 60, "BOOKED", Instant.EPOCH, Instant.EPOCH);
     }
 
@@ -89,6 +93,29 @@ class BookingMailServiceTest {
     }
 
     @Test
+    void sendBookingConfirmation_listsRepairsAsExcludedFromTheEstimate() {
+        service.sendBookingConfirmation(booking("alice@example.com", "Tier 1 — Simple",
+                "No removal needed", "Nail Fix, Single Nail Extension"));
+
+        ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender).send(captor.capture());
+
+        assertThat(captor.getValue().getText())
+                .contains("Repairs: Nail Fix, Single Nail Extension")
+                .contains("not included in the estimate");
+    }
+
+    @Test
+    void sendBookingConfirmation_noRepairs_omitsTheRepairsLine() {
+        service.sendBookingConfirmation(booking("alice@example.com", "Tier 1 — Simple", "No removal needed"));
+
+        ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender).send(captor.capture());
+
+        assertThat(captor.getValue().getText()).doesNotContain("Repairs:");
+    }
+
+    @Test
     void sendBookingConfirmation_omitsBothDefaultAddOns() {
         service.sendBookingConfirmation(
                 booking("alice@example.com", "No design (plain colour only)", "No removal needed"));
@@ -133,7 +160,7 @@ class BookingMailServiceTest {
                 .contains("2:00 PM")                            // start time
                 .contains("Block 190 Lorong 6 Toa Payoh")       // studio address
                 .contains("Toa Payoh HDB Hub Car Park")         // parking / MRT
-                .contains("<a href=\"https://instagram.com/every1luvss.co\">@every1luvsnails</a>");
+                .contains("<a href=\"https://instagram.com/every1luvss.co\">@every1luvss.co</a>");
         assertThat(html).doesNotContain("3:00 PM");             // no end time
     }
 
@@ -174,7 +201,7 @@ class BookingMailServiceTest {
         assertThat(html)
                 .contains("Hi Alice")
                 .contains("<a href=\"" + REVIEW_URL + "\">Leave a Review →</a>")
-                .contains("<a href=\"https://instagram.com/every1luvss.co\">@every1luvsnails</a>");
+                .contains("<a href=\"https://instagram.com/every1luvss.co\">@every1luvss.co</a>");
     }
 
     @Test

@@ -14,6 +14,7 @@ import com.qwertyblob.every1luvs.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.InOrder;
 import org.mockito.Mock;
@@ -94,6 +95,68 @@ class BookingServiceTest {
         assertThat(response.serviceName()).isEqualTo("Classic Manicure");
         assertThat(response.nailArt()).isEqualTo("Tier 2 — Layered");
         assertThat(response.removal()).isEqualTo("Gel / Hard Gel — Done by every1luvs");
+    }
+
+    @Test
+    void createBooking_recordsRepairNames_withoutChangingPriceOrDuration() {
+        SlotEntity slot = slot(3, 0);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(bookingRepository.existsActiveBookingForUserAndSlot(1L, 1L)).thenReturn(false);
+        when(slotRepository.saveAndFlush(slot)).thenReturn(slot);
+        when(bookingRepository.save(any())).thenAnswer(inv -> {
+            BookingEntity b = inv.getArgument(0);
+            b.setId(31L);
+            b.setStatus("BOOKED");
+            return b;
+        });
+        // Both repairs selected (multi-select), plus a duplicate that must be collapsed.
+        CreateBookingRequest request = new CreateBookingRequest(1L, null, null, null, null, null,
+                null, null, null, null, null, "classic", "junior", "none", "none", null,
+                List.of("nail-fix", "single-extension", "nail-fix"));
+
+        BookingResponse response = bookingService.createBooking(request, "alice@example.com");
+
+        assertThat(response.repairs()).isEqualTo("Nail Fix, Single Nail Extension");
+        // Repairs are quoted in person: the total stays at the bare classic price and the
+        // occupied interval stays at the classic duration.
+        assertThat(response.totalPrice()).isEqualTo(58);
+        ArgumentCaptor<BookingEntity> saved = ArgumentCaptor.forClass(BookingEntity.class);
+        verify(bookingRepository).save(saved.capture());
+        assertThat(saved.getValue().getDurationMin()).isEqualTo(45);
+    }
+
+    @Test
+    void createBooking_unknownRepair_throws400() {
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        CreateBookingRequest request = new CreateBookingRequest(1L, null, null, null, null, null,
+                null, null, null, null, null, "classic", "junior", "none", "none", null,
+                List.of("free-full-set"));
+
+        var ex = catchThrowableOfType(
+                () -> bookingService.createBooking(request, "alice@example.com"),
+                ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getReason()).contains("repair");
+    }
+
+    @Test
+    void createBooking_noRepairs_leavesRepairsNull() {
+        SlotEntity slot = slot(3, 0);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(bookingRepository.existsActiveBookingForUserAndSlot(1L, 1L)).thenReturn(false);
+        when(slotRepository.saveAndFlush(slot)).thenReturn(slot);
+        when(bookingRepository.save(any())).thenAnswer(inv -> {
+            BookingEntity b = inv.getArgument(0);
+            b.setId(32L);
+            b.setStatus("BOOKED");
+            return b;
+        });
+
+        BookingResponse response = bookingService.createBooking(authBooking(1L), "alice@example.com");
+
+        assertThat(response.repairs()).isNull();
     }
 
     @Test

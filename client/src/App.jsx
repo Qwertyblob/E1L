@@ -139,7 +139,7 @@ function blankToNull(value) {
   return value || null;
 }
 
-function buildBookingPayload({ slotId, form, serviceId, nailArtId, removalId, attachments }) {
+function buildBookingPayload({ slotId, form, serviceId, nailArtId, removalId, repairIds, attachments }) {
   const f = form || {};
   return {
     slotId,
@@ -153,6 +153,9 @@ function buildBookingPayload({ slotId, form, serviceId, nailArtId, removalId, at
     serviceId: blankToNull(serviceId),
     nailArtId: blankToNull(nailArtId),
     removalId: blankToNull(removalId),
+    // Multi-select repairs; omitted (null) when none were picked. They add no price or time —
+    // the server records the names only.
+    repairIds: repairIds && repairIds.length ? repairIds : null,
     // Optional inspo images ({ filename, contentType, data }). The server forwards these to the
     // salon inbox as email attachments and never stores them. Omit the key when there are none.
     attachments: attachments && attachments.length ? attachments : null,

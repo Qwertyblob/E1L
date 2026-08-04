@@ -48,12 +48,14 @@ public final class BookingCatalog {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record CatalogData(List<RawService> NAIL_SERVICES,
-                               List<RawAddOn> NAIL_ART, List<RawAddOn> REMOVAL) {
+                               List<RawAddOn> NAIL_ART, List<RawAddOn> REMOVAL,
+                               List<RawAddOn> REPAIRS) {
     }
 
     private static final Map<String, Service> SERVICES;
     private static final Map<String, AddOn> NAIL_ART;
     private static final Map<String, AddOn> REMOVAL;
+    private static final Map<String, AddOn> REPAIRS;
 
     static {
         CatalogData data = loadCatalog();
@@ -63,6 +65,9 @@ public final class BookingCatalog {
         // Removal names collide ("Gel / Hard Gel" by-us vs by-others), so disambiguate with
         // the sub-label for clear admin records.
         REMOVAL = addOns(data.REMOVAL(), true);
+        // Repair names are distinct; they carry price 0 / durationMin 0 by design (quoted in
+        // person), so they never move a booking's total or occupied interval.
+        REPAIRS = addOns(data.REPAIRS(), false);
     }
 
     private BookingCatalog() {
@@ -95,6 +100,15 @@ public final class BookingCatalog {
 
     public static Optional<AddOn> removal(String id) {
         return Optional.ofNullable(REMOVAL.get(id == null ? DEFAULT_ADD_ON : id));
+    }
+
+    /**
+     * A repair add-on by id, or empty if unknown. Unlike nail art/removal there is no "none"
+     * sentinel — repairs are a multi-select list that is simply empty when nothing is picked, so a
+     * null id is never a valid selection here.
+     */
+    public static Optional<AddOn> repair(String id) {
+        return Optional.ofNullable(id == null ? null : REPAIRS.get(id));
     }
 
     private static CatalogData loadCatalog() {

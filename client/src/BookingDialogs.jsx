@@ -74,6 +74,8 @@ export function BookingDetailModal({ bookingDetail, bookingDetailRef, statusClas
           {bookingDetail.technician && <div><dt>Technician</dt><dd>{bookingDetail.technician}</dd></div>}
           {bookingDetail.nailArt && <div><dt>Nail art</dt><dd>{bookingDetail.nailArt}</dd></div>}
           {bookingDetail.removal && <div><dt>Removal</dt><dd>{bookingDetail.removal}</dd></div>}
+          {/* Repairs are excluded from the total below (quoted on the day), so label them as such. */}
+          {bookingDetail.repairs && <div><dt>Repairs</dt><dd>{bookingDetail.repairs} <em>(not in total)</em></dd></div>}
           {bookingDetail.totalPrice != null && <div><dt>Total</dt><dd>S${bookingDetail.totalPrice}</dd></div>}
           <div><dt>Notes</dt><dd>{bookingDetail.notes || '—'}</dd></div>
         </dl>

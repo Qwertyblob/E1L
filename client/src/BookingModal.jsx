@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './BookingModal.css';
 import { getCalendarDays } from './slotBuilderUtils';
-import { NAIL_ART, NAIL_SERVICES, REMOVAL } from './services';
+import { NAIL_ART, NAIL_SERVICES, REMOVAL, REPAIRS } from './services';
 import { useFocusTrap } from './useFocusTrap';
 
 // Relative base so requests go through the dev-server proxy (same-origin). See App.jsx.
@@ -48,8 +48,9 @@ function CheckIcon({ className }) {
   );
 }
 
-// Sum the chosen service plus optional nail-art and removal add-ons.
-// Missing selections contribute 0.
+// Sum the chosen service plus optional nail-art and removal add-ons. Missing selections
+// contribute 0. Repairs are deliberately absent: they are quoted in person, so they carry
+// no price here (and none in the server catalog either).
 function computeTotal(service, nailArt, removal) {
   const basePrice = service ? service.price : 0;
   const nailArtPrice = NAIL_ART.find((a) => a.id === nailArt)?.price || 0;
@@ -57,6 +58,8 @@ function computeTotal(service, nailArt, removal) {
   return basePrice + nailArtPrice + removalPrice;
 }
 
+// Repairs add no time here for the same reason they add no cost — the salon fits them in
+// and quotes them on the day.
 function computeEstimatedDuration(service, nailArt, removal) {
   const baseDuration = service?.durationMin || 0;
   const nailArtDuration = NAIL_ART.find((a) => a.id === nailArt)?.durationMin || 0;
@@ -65,14 +68,18 @@ function computeEstimatedDuration(service, nailArt, removal) {
 }
 
 // Human-readable list of the chosen add-ons for the recap rows. "none" selections (the default
-// nail-art/removal options) are omitted; shows "None" when nothing extra is added.
-function formatAddOns(nailArt, removal) {
+// nail-art/removal options) are omitted; shows "None" when nothing extra is added. Repairs are
+// listed too — they cost/take nothing in the estimate but the salon still needs to see them.
+function formatAddOns(nailArt, removal, repairs = []) {
   const parts = [];
   if (nailArt && nailArt !== 'none') {
     parts.push(NAIL_ART.find((a) => a.id === nailArt)?.name || nailArt);
   }
   if (removal && removal !== 'none') {
     parts.push(REMOVAL.find((r) => r.id === removal)?.name || removal);
+  }
+  for (const id of repairs) {
+    parts.push(REPAIRS.find((r) => r.id === id)?.name || id);
   }
   return parts.length ? parts.join(', ') : 'None';
 }
@@ -140,7 +147,7 @@ function ServiceStep({ services, serviceId, selectService }) {
 }
 
 // Step 1 — Add-ons
-function AddOnsStep({ nailArt, setNailArt, removal, setRemoval, total }) {
+function AddOnsStep({ nailArt, setNailArt, removal, setRemoval, repairs, toggleRepair, total }) {
   return (
     <>
       <p className="bk-prompt">Customise your appointment. All add-ons are optional.</p>
@@ -170,6 +177,33 @@ function AddOnsStep({ nailArt, setNailArt, removal, setRemoval, total }) {
           </button>
         ))}
       </div>
+      {/* Repairs are multi-select (unlike the single-choice sections above) and carry no price or
+          duration, so the estimate below is unaffected — hence the note. */}
+      <p className="bk-section-label">Repairs <span className="bk-muted">(select any that apply)</span></p>
+      <div className="bk-option-list">
+        {REPAIRS.map((r) => {
+          const selected = repairs.includes(r.id);
+          return (
+            <button
+              aria-pressed={selected}
+              className={`bk-option${selected ? ' bk-option--selected' : ''}`}
+              key={r.id}
+              onClick={() => toggleRepair(r.id)}
+              type="button"
+            >
+              <div className="bk-option-info">
+                <span className="bk-option-name">{r.name}</span>
+                {r.sub && <span className="bk-option-sub">{r.sub}</span>}
+              </div>
+              {selected && <CheckIcon className="bk-option-check" />}
+            </button>
+          );
+        })}
+      </div>
+      <p className="bk-section-note">
+        Repairs are quoted on the day. Their time and cost are <strong>not</strong> included in the
+        estimated duration or estimated total below.
+      </p>
       <div className="bk-estimate">
         <span>Estimated total</span>
         <span>S${total}</span>
@@ -465,6 +499,8 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   const [serviceId, setServiceId] = useState(null);
   const [nailArt, setNailArt] = useState('none');
   const [removal, setRemoval] = useState('none');
+  // Repairs are multi-select, so this is a list of ids (possibly empty) rather than a single id.
+  const [repairs, setRepairs] = useState([]);
   const [calYear, setCalYear] = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth());
   const [date, setDate] = useState(null);
@@ -599,7 +635,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   const services = NAIL_SERVICES;
 
   const total = computeTotal(service, nailArt, removal);
-  const addOnsLabel = formatAddOns(nailArt, removal);
+  const addOnsLabel = formatAddOns(nailArt, removal, repairs);
   const deposit = 30;
 
   const currentQuoteKey = serviceId ? `${serviceId}|${nailArt}|${removal}` : null;
@@ -623,6 +659,12 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
 
   function selectService(id) {
     setServiceId(id);
+  }
+
+  // Repairs don't change the quote (no price, no duration), so toggling one never invalidates
+  // the loaded availability — unlike nail art / removal, they're absent from the quote key.
+  function toggleRepair(id) {
+    setRepairs((prev) => (prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]));
   }
 
   function prevMonth() {
@@ -690,6 +732,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
         serviceId: service?.id || null,
         nailArtId: nailArt,
         removalId: removal,
+        repairIds: repairs,
         date,
         time,
         // Strip the preview data-URL + size; the API only needs filename/contentType/base64 data.
@@ -742,6 +785,8 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
                   setNailArt={setNailArt}
                   removal={removal}
                   setRemoval={setRemoval}
+                  repairs={repairs}
+                  toggleRepair={toggleRepair}
                   total={total}
                 />,
                 <DateTimeStep
