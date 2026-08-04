@@ -319,7 +319,7 @@ function LandingView({
               <li>
                 <a href="https://instagram.com/every1luvss.co" target="_blank" rel="noopener noreferrer">
                   <FaInstagram />
-                  <span>&#64;every1luvss.co &middot; Nails</span>
+                  <span>&#64;every1luvss.co</span>
                 </a>
               </li>
             </ul>
