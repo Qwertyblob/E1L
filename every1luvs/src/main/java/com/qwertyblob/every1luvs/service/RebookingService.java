@@ -113,6 +113,7 @@ public class RebookingService {
                 booking.getTechnician(),
                 booking.getNailArt(),
                 booking.getRemoval(),
+                booking.getRepairs(),
                 booking.getTotalPrice(),
                 booking.getStatus(),
                 booking.getConfirmedAt(),

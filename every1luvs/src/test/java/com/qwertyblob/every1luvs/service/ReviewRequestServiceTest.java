@@ -51,7 +51,7 @@ class ReviewRequestServiceTest {
                 id, 10L, "Manicure slot",
                 Instant.parse("2026-06-15T14:00:00Z"), Instant.parse("2026-06-15T15:00:00Z"),
                 1L, "Alice", "alice@example.com", "123", "@alice", "notes",
-                "Classic Manicure", null, "Tier 1 — Simple", "No removal needed",
+                "Classic Manicure", null, "Tier 1 — Simple", "No removal needed", null,
                 60, "COMPLETED", Instant.EPOCH, Instant.EPOCH);
     }
 

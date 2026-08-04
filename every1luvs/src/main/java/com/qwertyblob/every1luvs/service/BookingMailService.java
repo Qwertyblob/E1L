@@ -54,7 +54,7 @@ public class BookingMailService {
     private static final String STUDIO_ADDRESS = "Block 190 Lorong 6 Toa Payoh";
     private static final String STUDIO_TRANSPORT =
             "Toa Payoh HDB Hub Car Park / Toa Payoh MRT Station";
-    private static final String INSTAGRAM_HANDLE = "@every1luvsnails";
+    private static final String INSTAGRAM_HANDLE = "@every1luvss.co";
     private static final String INSTAGRAM_URL = "https://instagram.com/every1luvss.co";
 
     private final JavaMailSender mailSender;
@@ -290,7 +290,11 @@ public class BookingMailService {
         body.append("Service: ").append(safe(booking.serviceName())).append('\n');
         body.append("Nail art: ").append(safe(booking.nailArt())).append('\n');
         body.append("Removal: ").append(safe(booking.removal())).append('\n');
-        body.append("When: ")
+        // Repairs aren't priced or timed in the quote, so call that out here — the salon has to
+        // quote them on the day and allow for the extra time.
+        body.append("Repairs: ").append(
+                (booking.repairs() == null || booking.repairs().isBlank()) ? "—" : booking.repairs()).append('\n');
+        body.append("Date/Time: ")
                 .append(SLOT_FORMAT.format(booking.slotStartTime()))
                 .append(" – ")
                 .append(SLOT_FORMAT.format(booking.slotEndTime()))
@@ -369,6 +373,10 @@ public class BookingMailService {
         }
         if (isMeaningful(booking.removal(), NO_REMOVAL)) {
             body.append("Removal: ").append(booking.removal()).append('\n');
+        }
+        if (booking.repairs() != null && !booking.repairs().isBlank()) {
+            body.append("Repairs: ").append(booking.repairs())
+                    .append(" (quoted on the day, not included in the estimate below)\n");
         }
         body.append("Deposit Paid: S$").append(DEPOSIT_SGD).append(" (applied to your final bill)\n");
         body.append("Total Estimate: S$").append(booking.totalPrice()).append("\n\n");

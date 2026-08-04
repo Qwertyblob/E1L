@@ -110,6 +110,7 @@ public class ReminderService {
                 booking.getTechnician(),
                 booking.getNailArt(),
                 booking.getRemoval(),
+                booking.getRepairs(),
                 booking.getTotalPrice(),
                 booking.getStatus(),
                 booking.getConfirmedAt(),

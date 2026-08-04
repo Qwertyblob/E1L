@@ -261,7 +261,7 @@ function LandingView({
             />
           ))}
         </div>
-        <p className="gallery-instagram-prompt">Follow &#64;every1luvsnails for the latest sets</p>
+        <p className="gallery-instagram-prompt">Follow &#64;every1luvss.co for the latest sets</p>
       </section>
 
       {/* ── About ── */}
@@ -317,9 +317,9 @@ function LandingView({
             <h4>Follow Us</h4>
             <ul className="footer-follow-list">
               <li>
-                <a href="https://instagram.com/every1luvsnails" target="_blank" rel="noopener noreferrer">
+                <a href="https://instagram.com/every1luvss.co" target="_blank" rel="noopener noreferrer">
                   <FaInstagram />
-                  <span>&#64;every1luvsnails &middot; Nails</span>
+                  <span>&#64;every1luvss.co</span>
                 </a>
               </li>
             </ul>

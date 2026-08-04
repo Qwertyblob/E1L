@@ -51,5 +51,9 @@
     { "id": "self-ext", "name": "Extensions", "sub": "Done by every1luvs", "price": 10, "time": "+30 mins", "durationMin": 30 },
     { "id": "other-gel", "name": "Gel / Hard Gel", "sub": "Done by others", "price": 22, "time": "+30 mins", "durationMin": 30 },
     { "id": "other-ext", "name": "Extensions", "sub": "Done by others", "price": 28, "time": "+30 mins", "durationMin": 30 }
+  ],
+  "REPAIRS": [
+    { "id": "nail-fix", "name": "Nail Fix", "sub": "Repair a chipped, cracked or lifted nail.", "price": 0, "durationMin": 0 },
+    { "id": "single-extension", "name": "Single Nail Extension", "sub": "One extension to replace a broken natural nail.", "price": 0, "durationMin": 0 }
   ]
 }

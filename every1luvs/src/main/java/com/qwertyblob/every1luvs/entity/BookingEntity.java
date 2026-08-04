@@ -53,6 +53,12 @@ public class BookingEntity {
     @Column(name = "removal")
     private String removal;
 
+    // Comma-joined names of the selected repair add-ons (multi-select), or NULL when none.
+    // Repairs are priced and timed in person, so they contribute nothing to total_price or
+    // duration_min — this column exists purely so the salon sees the request.
+    @Column(name = "repairs")
+    private String repairs;
+
     @Column(name = "total_price")
     private Integer totalPrice;
 
@@ -145,6 +151,9 @@ public class BookingEntity {
 
     public String getRemoval() { return removal; }
     public void setRemoval(String removal) { this.removal = removal; }
+
+    public String getRepairs() { return repairs; }
+    public void setRepairs(String repairs) { this.repairs = repairs; }
 
     public Integer getTotalPrice() { return totalPrice; }
     public void setTotalPrice(Integer totalPrice) { this.totalPrice = totalPrice; }

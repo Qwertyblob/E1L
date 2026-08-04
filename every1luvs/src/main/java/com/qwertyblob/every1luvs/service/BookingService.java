@@ -49,6 +49,9 @@ public class BookingService {
     private static final int MAX_PHONE_LENGTH = 64;
     private static final int MAX_INSTAGRAM_LENGTH = 255;
     private static final int MAX_NOTES_LENGTH = 2_000;
+    // Repairs are a small fixed catalog (see services.json); cap the multi-select so a caller
+    // can't post an unbounded list for the bounded repairs VARCHAR(255) column.
+    private static final int MAX_REPAIRS = 10;
     // Inspo image caps. Images are emailed to the salon, never stored, so bound the count and
     // (decoded) size to keep the public request body small and reject non-images. Keep these in
     // step with the client-side checks in BookingModal.jsx and nginx client_max_body_size.
@@ -214,6 +217,7 @@ public class BookingService {
         booking.setServiceName(quote.serviceName());
         booking.setNailArt(quote.nailArt());
         booking.setRemoval(quote.removal());
+        booking.setRepairs(quote.repairs());
         booking.setTotalPrice(quote.totalPrice());
         // Persist the duration so the SchedulingGuard invariant can be re-evaluated against this
         // booking's occupied interval on future confirmations and in the conflict audit.
@@ -295,8 +299,8 @@ public class BookingService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private record BookingQuote(String serviceName, String nailArt,
-                                String removal, int totalPrice, int durationMin) {
+    private record BookingQuote(String serviceName, String nailArt, String removal,
+                                String repairs, int totalPrice, int durationMin) {
     }
 
     // Resolve canonical names + price + total duration from the server catalog, rejecting
@@ -316,7 +320,30 @@ public class BookingService {
 
         int total = service.price() + nailArt.price() + removal.price();
         int durationMin = service.durationMin() + nailArt.durationMin() + removal.durationMin();
-        return new BookingQuote(service.name(), nailArt.name(), removal.name(), total, durationMin);
+        // Repairs are intentionally absent from both sums: the salon quotes and fits them in on
+        // the day, so they only contribute their names to the booking record.
+        return new BookingQuote(service.name(), nailArt.name(), removal.name(),
+                repairNames(request.repairIds()), total, durationMin);
+    }
+
+    // Resolve the multi-select repair ids to their canonical catalog names, joined for storage in
+    // the single repairs column. Duplicates are collapsed and order follows the request; an
+    // unknown id is rejected (400) like any other selection. Null/empty -> null (no repairs).
+    private String repairNames(List<String> repairIds) {
+        if (repairIds == null || repairIds.isEmpty()) {
+            return null;
+        }
+        if (repairIds.size() > MAX_REPAIRS) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Too many repair selections.");
+        }
+        String names = repairIds.stream()
+                .distinct()
+                .map(id -> BookingCatalog.repair(id)
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                "Unknown repair selection."))
+                        .name())
+                .collect(Collectors.joining(", "));
+        return names.isEmpty() ? null : names;
     }
 
     @Transactional
@@ -614,6 +641,7 @@ public class BookingService {
                 booking.getTechnician(),
                 booking.getNailArt(),
                 booking.getRemoval(),
+                booking.getRepairs(),
                 booking.getTotalPrice(),
                 booking.getStatus(),
                 booking.getConfirmedAt(),

@@ -8,3 +8,6 @@ import catalog from './services.json';
 export const NAIL_SERVICES = catalog.NAIL_SERVICES;
 export const NAIL_ART = catalog.NAIL_ART;
 export const REMOVAL = catalog.REMOVAL;
+// Multi-select repair add-ons. They are quoted in person, so they carry price 0 and
+// durationMin 0 and contribute nothing to the estimate (see BookingModal).
+export const REPAIRS = catalog.REPAIRS;

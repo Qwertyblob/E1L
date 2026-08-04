@@ -57,7 +57,7 @@ class BookingControllerTest {
     private static BookingResponse booking(Long id, String status) {
         return new BookingResponse(id, 10L, "Slot", Instant.EPOCH, Instant.EPOCH, 1L, "Alice",
                 "alice@example.com", "123", "@alice", "notes", "Manicure", "Tech", "art", "none",
-                5000, status, Instant.EPOCH, Instant.EPOCH);
+                null, 5000, status, Instant.EPOCH, Instant.EPOCH);
     }
 
     // ─── createBooking ───────────────────────────────────────────────────────────

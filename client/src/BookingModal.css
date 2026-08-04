@@ -112,6 +112,13 @@
 }
 .bk-section-label:first-child { margin-top: 0; }
 .bk-muted { color: var(--muted); font-family: inherit; font-size: 0.8rem; font-weight: 400; }
+/* Caveat under a section (e.g. repairs are excluded from the estimate below). */
+.bk-section-note {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: 10px 0 0;
+}
 
 /* Category toggle */
 .bk-cat-toggle {

@@ -88,6 +88,35 @@ describe('BookingModal — pricing logic', () => {
     expect(within(estimate()).getByText('S$93')).toBeInTheDocument();
   });
 
+  test('repairs are multi-select and change neither the estimated total nor the duration', async () => {
+    renderModal();
+    await toAddonsStep(); // Classic Manicure = 58, 45 min
+
+    const estimate = () => screen.getByText('Estimated total').closest('.bk-estimate');
+    const nailFix = screen.getByRole('button', { name: /Nail Fix/ });
+    const singleExt = screen.getByRole('button', { name: /Single Nail Extension/ });
+
+    // Both can be selected at once, unlike the single-choice sections above.
+    await userEvent.click(nailFix);
+    await userEvent.click(singleExt);
+    expect(nailFix).toHaveAttribute('aria-pressed', 'true');
+    expect(singleExt).toHaveAttribute('aria-pressed', 'true');
+    expect(within(estimate()).getByText('S$58')).toBeInTheDocument();
+
+    // …and toggled back off.
+    await userEvent.click(nailFix);
+    expect(nailFix).toHaveAttribute('aria-pressed', 'false');
+    expect(singleExt).toHaveAttribute('aria-pressed', 'true');
+
+    // The excluded-from-estimate note is shown, and the duration is the bare service duration.
+    // (Queried by class: the sentence is broken up by an inner <strong>, so getByText can't see it.)
+    expect(document.querySelector('.bk-section-note')?.textContent)
+      .toMatch(/not included in the estimated duration or estimated total/i);
+    await clickContinue();
+    await userEvent.click(await screen.findByRole('button', { name: '15' }));
+    expect(screen.getByText('45 min')).toBeInTheDocument();
+  });
+
   test('estimated appointment duration includes selected add-on durations', async () => {
     renderModal();
     await toAddonsStep(); // Classic Manicure = 45 min
@@ -218,6 +247,7 @@ describe('BookingModal — confirm flow', () => {
         serviceId: 'classic',
         nailArtId: 'none',
         removalId: 'none',
+        repairIds: [],
         time: '10:00',
         date: DATE_STR,
       }),
