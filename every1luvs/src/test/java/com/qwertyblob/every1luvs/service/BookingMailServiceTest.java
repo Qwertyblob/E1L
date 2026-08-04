@@ -133,7 +133,7 @@ class BookingMailServiceTest {
                 .contains("2:00 PM")                            // start time
                 .contains("Block 190 Lorong 6 Toa Payoh")       // studio address
                 .contains("Toa Payoh HDB Hub Car Park")         // parking / MRT
-                .contains("<a href=\"https://instagram.com/every1luvsnails\">@every1luvsnails</a>");
+                .contains("<a href=\"https://instagram.com/every1luvss.co\">@every1luvsnails</a>");
         assertThat(html).doesNotContain("3:00 PM");             // no end time
     }
 
@@ -174,7 +174,7 @@ class BookingMailServiceTest {
         assertThat(html)
                 .contains("Hi Alice")
                 .contains("<a href=\"" + REVIEW_URL + "\">Leave a Review →</a>")
-                .contains("<a href=\"https://instagram.com/every1luvsnails\">@every1luvsnails</a>");
+                .contains("<a href=\"https://instagram.com/every1luvss.co\">@every1luvsnails</a>");
     }
 
     @Test
