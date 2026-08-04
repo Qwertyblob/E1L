@@ -7,4 +7,5 @@ import catalog from './services.json';
 
 export const NAIL_SERVICES = catalog.NAIL_SERVICES;
 export const NAIL_ART = catalog.NAIL_ART;
+export const REPAIRS = catalog.REPAIRS;
 export const REMOVAL = catalog.REMOVAL;

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './BookingModal.css';
 import { getCalendarDays } from './slotBuilderUtils';
-import { NAIL_ART, NAIL_SERVICES, REMOVAL } from './services';
+import { NAIL_ART, NAIL_SERVICES, REMOVAL, REPAIRS } from './services';
 import { useFocusTrap } from './useFocusTrap';
 
 // Relative base so requests go through the dev-server proxy (same-origin). See App.jsx.
@@ -140,7 +140,7 @@ function ServiceStep({ services, serviceId, selectService }) {
 }
 
 // Step 1 — Add-ons
-function AddOnsStep({ nailArt, setNailArt, removal, setRemoval, total }) {
+function AddOnsStep({ nailArt, setNailArt, removal, setRemoval, repairs, toggleRepair, total }) {
   return (
     <>
       <p className="bk-prompt">Customise your appointment. All add-ons are optional.</p>
@@ -168,6 +168,20 @@ function AddOnsStep({ nailArt, setNailArt, removal, setRemoval, total }) {
             {r.price > 0 && <span className="bk-option-price">+S${r.price}</span>}
             {removal === r.id && <CheckIcon className="bk-option-check" />}
           </button>
+        ))}
+      </div>
+      <p className="bk-section-label">Repairs</p>
+      <p className="bk-muted">Repair costs aren't included in your estimated total — we'll confirm pricing at your appointment.</p>
+      <div className="bk-option-list">
+        {REPAIRS.map((r) => (
+          <label className={`bk-option${repairs.includes(r.id) ? ' bk-option--selected' : ''}`} key={r.id}>
+            <input
+              checked={repairs.includes(r.id)}
+              onChange={() => toggleRepair(r.id)}
+              type="checkbox"
+            />
+            <span className="bk-option-name">{r.name}</span>
+          </label>
         ))}
       </div>
       <div className="bk-estimate">
@@ -465,6 +479,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   const [serviceId, setServiceId] = useState(null);
   const [nailArt, setNailArt] = useState('none');
   const [removal, setRemoval] = useState('none');
+  const [repairs, setRepairs] = useState([]);
   const [calYear, setCalYear] = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth());
   const [date, setDate] = useState(null);
@@ -625,6 +640,10 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     setServiceId(id);
   }
 
+  function toggleRepair(id) {
+    setRepairs((prev) => (prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]));
+  }
+
   function prevMonth() {
     setCalYear((y) => (calMonth === 0 ? y - 1 : y));
     setCalMonth((m) => (m === 0 ? 11 : m - 1));
@@ -690,6 +709,8 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
         serviceId: service?.id || null,
         nailArtId: nailArt,
         removalId: removal,
+        // Informational only — repairs never affect price/duration (see BookingCatalog).
+        repairIds: repairs,
         date,
         time,
         // Strip the preview data-URL + size; the API only needs filename/contentType/base64 data.
@@ -742,6 +763,8 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
                   setNailArt={setNailArt}
                   removal={removal}
                   setRemoval={setRemoval}
+                  repairs={repairs}
+                  toggleRepair={toggleRepair}
                   total={total}
                 />,
                 <DateTimeStep

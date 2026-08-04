@@ -290,6 +290,9 @@ public class BookingMailService {
         body.append("Service: ").append(safe(booking.serviceName())).append('\n');
         body.append("Nail art: ").append(safe(booking.nailArt())).append('\n');
         body.append("Removal: ").append(safe(booking.removal())).append('\n');
+        if (booking.repairs() != null && !booking.repairs().isBlank()) {
+            body.append("Repairs: ").append(booking.repairs()).append('\n');
+        }
         body.append("When: ")
                 .append(SLOT_FORMAT.format(booking.slotStartTime()))
                 .append(" – ")
@@ -369,6 +372,10 @@ public class BookingMailService {
         }
         if (isMeaningful(booking.removal(), NO_REMOVAL)) {
             body.append("Removal: ").append(booking.removal()).append('\n');
+        }
+        if (booking.repairs() != null && !booking.repairs().isBlank()) {
+            body.append("Repairs: ").append(booking.repairs())
+                    .append(" (cost not included in this estimate — confirmed at your appointment)\n");
         }
         body.append("Deposit Paid: S$").append(DEPOSIT_SGD).append(" (applied to your final bill)\n");
         body.append("Total Estimate: S$").append(booking.totalPrice()).append("\n\n");

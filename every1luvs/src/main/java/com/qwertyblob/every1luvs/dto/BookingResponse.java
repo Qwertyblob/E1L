@@ -18,6 +18,9 @@ public record BookingResponse(
         String technician,
         String nailArt,
         String removal,
+        // Joined display names of any selected repairs (e.g. "Nail Fix, Single Nail Extension"),
+        // or null if none. Informational only — never folded into totalPrice.
+        String repairs,
         Integer totalPrice,
         String status,
         Instant confirmedAt,

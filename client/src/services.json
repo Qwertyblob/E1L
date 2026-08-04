@@ -45,6 +45,10 @@
     { "id": "tier2", "name": "Tier 2 — Layered", "sub": "Ombré, chrome, florals, geometric patterns, foils.", "price": 25, "time": "+45 mins", "durationMin": 45 },
     { "id": "tier3", "name": "Tier 3 — Intricate", "sub": "3D elements, mosaic nails, character art, bespoke hand-painted.", "price": 48, "time": "+60 mins", "durationMin": 60 }
   ],
+  "REPAIRS": [
+    { "id": "nail-fix", "name": "Nail Fix", "price": 0, "durationMin": 0 },
+    { "id": "single-nail-extension", "name": "Single Nail Extension", "price": 0, "durationMin": 0 }
+  ],
   "REMOVAL": [
     { "id": "none", "name": "No removal needed", "price": 0, "durationMin": 0 },
     { "id": "self-gel", "name": "Gel / Hard Gel", "sub": "Done by every1luvs", "price": 8, "time": "+30 mins", "durationMin": 30 },

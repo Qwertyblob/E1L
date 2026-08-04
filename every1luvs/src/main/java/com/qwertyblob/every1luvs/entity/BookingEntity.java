@@ -53,6 +53,11 @@ public class BookingEntity {
     @Column(name = "removal")
     private String removal;
 
+    // Joined display names of any selected repairs (Nail Fix / Single Nail Extension), or null.
+    // Informational only — never priced or timed; see BookingCatalog.repair.
+    @Column(name = "repairs")
+    private String repairs;
+
     @Column(name = "total_price")
     private Integer totalPrice;
 
@@ -145,6 +150,9 @@ public class BookingEntity {
 
     public String getRemoval() { return removal; }
     public void setRemoval(String removal) { this.removal = removal; }
+
+    public String getRepairs() { return repairs; }
+    public void setRepairs(String repairs) { this.repairs = repairs; }
 
     public Integer getTotalPrice() { return totalPrice; }
     public void setTotalPrice(Integer totalPrice) { this.totalPrice = totalPrice; }

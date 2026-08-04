@@ -201,6 +201,7 @@
 .bk-option-sub { color: var(--muted); font-size: 0.8rem; }
 .bk-option-price { color: var(--muted); flex-shrink: 0; font-size: 0.86rem; font-weight: 700; margin-left: auto; }
 .bk-option-check { color: var(--charcoal); flex-shrink: 0; }
+.bk-option input[type="checkbox"] { accent-color: var(--charcoal); flex-shrink: 0; height: 18px; width: 18px; }
 .bk-estimate {
   align-items: center;
   background: var(--cream);

@@ -88,6 +88,23 @@ describe('BookingModal — pricing logic', () => {
     expect(within(estimate()).getByText('S$93')).toBeInTheDocument();
   });
 
+  test('repairs are checkboxes and never affect the estimated total', async () => {
+    renderModal();
+    await toAddonsStep(); // Classic Manicure = 58
+
+    const estimate = () => screen.getByText('Estimated total').closest('.bk-estimate');
+    const nailFix = screen.getByRole('checkbox', { name: 'Nail Fix' });
+    const singleExtension = screen.getByRole('checkbox', { name: 'Single Nail Extension' });
+    expect(nailFix).not.toBeChecked();
+
+    await userEvent.click(nailFix);
+    await userEvent.click(singleExtension);
+
+    expect(nailFix).toBeChecked();
+    expect(singleExtension).toBeChecked();
+    expect(within(estimate()).getByText('S$58')).toBeInTheDocument(); // unchanged
+  });
+
   test('estimated appointment duration includes selected add-on durations', async () => {
     renderModal();
     await toAddonsStep(); // Classic Manicure = 45 min
@@ -218,12 +235,36 @@ describe('BookingModal — confirm flow', () => {
         serviceId: 'classic',
         nailArtId: 'none',
         removalId: 'none',
+        repairIds: [],
         time: '10:00',
         date: DATE_STR,
       }),
     );
     expect(await screen.findByText('Booking request received 🎉')).toBeInTheDocument();
     expect(await screen.findByText(/Once your deposit is verified/)).toBeInTheDocument();
+  });
+
+  test('selected repairs are submitted without affecting total', async () => {
+    const { onConfirm } = renderModal();
+    await toAddonsStep(); // Classic Manicure
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Nail Fix' }));
+    await clickContinue(); // date & time
+    await userEvent.click(await screen.findByRole('button', { name: '15' }));
+    await userEvent.click(screen.getByRole('button', { name: '10:00' }));
+    await clickContinue(); // personal details
+    await userEvent.type(screen.getByLabelText(/Full Name/), 'Alice');
+    await userEvent.type(screen.getByLabelText(/Email/), 'alice@example.com');
+    await clickContinue(); // T&C
+    await userEvent.click(screen.getByRole('checkbox'));
+    await clickContinue(); // deposit
+    fireEvent.load(screen.getByAltText('PayNow S$30 deposit QR code'));
+    await userEvent.click(screen.getByRole('checkbox'));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ total: 58, repairIds: ['nail-fix'] }),
+    );
   });
 
   test('deposit step shows the recap + QR and gates confirm on QR load + the "paid" checkbox', async () => {

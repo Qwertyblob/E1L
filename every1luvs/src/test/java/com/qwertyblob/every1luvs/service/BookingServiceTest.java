@@ -110,6 +110,45 @@ class BookingServiceTest {
     }
 
     @Test
+    void createBooking_selectsRepairs_resolvesNamesWithoutAffectingPriceOrDuration() {
+        SlotEntity slot = slot(3, 0);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(bookingRepository.existsActiveBookingForUserAndSlot(1L, 1L)).thenReturn(false);
+        when(slotRepository.saveAndFlush(slot)).thenReturn(slot);
+        when(bookingRepository.save(any())).thenAnswer(inv -> {
+            BookingEntity b = inv.getArgument(0);
+            b.setId(31L);
+            b.setStatus("BOOKED");
+            return b;
+        });
+        CreateBookingRequest request = new CreateBookingRequest(1L, null, null, null, null, null,
+                null, null, null, null, null,
+                "classic", "junior", "none", "none", null,
+                List.of("nail-fix", "single-nail-extension"));
+
+        BookingResponse response = bookingService.createBooking(request, "alice@example.com");
+
+        assertThat(response.repairs()).isEqualTo("Nail Fix, Single Nail Extension");
+        assertThat(response.totalPrice()).isEqualTo(58); // classic only — repairs add nothing
+    }
+
+    @Test
+    void createBooking_unknownRepair_throws400() {
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        CreateBookingRequest request = new CreateBookingRequest(1L, null, null, null, null, null,
+                null, null, null, null, null,
+                "classic", "junior", "none", "none", null,
+                List.of("does-not-exist"));
+
+        var ex = catchThrowableOfType(
+                () -> bookingService.createBooking(request, "alice@example.com"),
+                ResponseStatusException.class);
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getReason()).contains("repair");
+    }
+
+    @Test
     void createBooking_happyPath_incrementsBookedCountAndSaves() {
         SlotEntity slot = slot(3, 1);
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
@@ -368,7 +407,7 @@ class BookingServiceTest {
                 () -> bookingService.createBooking(
                         new CreateBookingRequest(1L, "Guest Gina", "gina@example.com", null, null, null,
                                 null, null, null, null, null,
-                                "classic", "junior", "none", "none", six),
+                                "classic", "junior", "none", "none", six, null),
                         null),
                 ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -381,7 +420,7 @@ class BookingServiceTest {
                 () -> bookingService.createBooking(
                         new CreateBookingRequest(1L, "Guest Gina", "gina@example.com", null, null, null,
                                 null, null, null, null, null,
-                                "classic", "junior", "none", "none", List.of(pdf)),
+                                "classic", "junior", "none", "none", List.of(pdf), null),
                         null),
                 ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);

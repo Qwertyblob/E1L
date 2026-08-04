@@ -22,6 +22,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -214,6 +215,7 @@ public class BookingService {
         booking.setServiceName(quote.serviceName());
         booking.setNailArt(quote.nailArt());
         booking.setRemoval(quote.removal());
+        booking.setRepairs(quote.repairs());
         booking.setTotalPrice(quote.totalPrice());
         // Persist the duration so the SchedulingGuard invariant can be re-evaluated against this
         // booking's occupied interval on future confirmations and in the conflict audit.
@@ -296,13 +298,14 @@ public class BookingService {
     }
 
     private record BookingQuote(String serviceName, String nailArt,
-                                String removal, int totalPrice, int durationMin) {
+                                String removal, String repairs, int totalPrice, int durationMin) {
     }
 
     // Resolve canonical names + price + total duration from the server catalog, rejecting
     // unknown selections. durationMin (service + nail art + removal) defines the booking's
     // occupied interval for SchedulingGuard, so it — like the price — is computed here from the
-    // authoritative catalog, never trusted from the client.
+    // authoritative catalog, never trusted from the client. Repairs are validated the same way but
+    // deliberately excluded from both total and durationMin (see BookingCatalog.repair).
     private BookingQuote priceFromCatalog(CreateBookingRequest request) {
         BookingCatalog.Service service = BookingCatalog.service(request.serviceId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -314,9 +317,20 @@ public class BookingService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Unknown removal selection."));
 
+        List<String> repairNames = new ArrayList<>();
+        if (request.repairIds() != null) {
+            for (String repairId : request.repairIds()) {
+                BookingCatalog.AddOn repair = BookingCatalog.repair(repairId)
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                "Unknown repair selection."));
+                repairNames.add(repair.name());
+            }
+        }
+        String repairs = repairNames.isEmpty() ? null : String.join(", ", repairNames);
+
         int total = service.price() + nailArt.price() + removal.price();
         int durationMin = service.durationMin() + nailArt.durationMin() + removal.durationMin();
-        return new BookingQuote(service.name(), nailArt.name(), removal.name(), total, durationMin);
+        return new BookingQuote(service.name(), nailArt.name(), removal.name(), repairs, total, durationMin);
     }
 
     @Transactional
@@ -614,6 +628,7 @@ public class BookingService {
                 booking.getTechnician(),
                 booking.getNailArt(),
                 booking.getRemoval(),
+                booking.getRepairs(),
                 booking.getTotalPrice(),
                 booking.getStatus(),
                 booking.getConfirmedAt(),

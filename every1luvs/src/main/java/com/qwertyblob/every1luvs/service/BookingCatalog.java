@@ -48,11 +48,12 @@ public final class BookingCatalog {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record CatalogData(List<RawService> NAIL_SERVICES,
-                               List<RawAddOn> NAIL_ART, List<RawAddOn> REMOVAL) {
+                               List<RawAddOn> NAIL_ART, List<RawAddOn> REPAIRS, List<RawAddOn> REMOVAL) {
     }
 
     private static final Map<String, Service> SERVICES;
     private static final Map<String, AddOn> NAIL_ART;
+    private static final Map<String, AddOn> REPAIRS;
     private static final Map<String, AddOn> REMOVAL;
 
     static {
@@ -60,6 +61,9 @@ public final class BookingCatalog {
         SERVICES = services(data.NAIL_SERVICES());
         // Nail-art names are already distinct (Tier 1/2/3), so use them verbatim.
         NAIL_ART = addOns(data.NAIL_ART(), false);
+        // Repairs are priced per-nail on the landing page, not as a flat catalog price — kept at
+        // $0/0min here on purpose so a selection is never added to the booking estimate.
+        REPAIRS = addOns(data.REPAIRS(), false);
         // Removal names collide ("Gel / Hard Gel" by-us vs by-others), so disambiguate with
         // the sub-label for clear admin records.
         REMOVAL = addOns(data.REMOVAL(), true);
@@ -95,6 +99,14 @@ public final class BookingCatalog {
 
     public static Optional<AddOn> removal(String id) {
         return Optional.ofNullable(REMOVAL.get(id == null ? DEFAULT_ADD_ON : id));
+    }
+
+    /**
+     * A single repair selection by id. Unlike {@link #nailArt} / {@link #removal}, repairs are
+     * multi-select with no default "none" id — an unrecognised id is simply absent.
+     */
+    public static Optional<AddOn> repair(String id) {
+        return Optional.ofNullable(id == null ? null : REPAIRS.get(id));
     }
 
     private static CatalogData loadCatalog() {
