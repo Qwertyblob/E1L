@@ -495,6 +495,53 @@ input:focus {
 .user-row strong.status-cancelled { color: var(--coral); }
 .user-row strong.status-pending { color: #b7791f; }
 
+/* Admin booking rows carry three lines of info, so they need vertical padding that the
+   single-line `.user-row` (padding: 0 14px) doesn't provide. */
+.user-row--booking {
+  padding: 12px 14px;
+}
+
+.booking-row-name {
+  font-weight: 600;
+}
+
+.booking-row-id {
+  color: var(--muted);
+  font-weight: 400;
+  margin-left: 6px;
+  white-space: nowrap; /* keep "#125" together when a long name wraps */
+}
+
+/* Row action group (Confirm/Complete/Resend/Cancel). `.text-button` carries a global
+   `margin-left: 5px`, which is cancelled here so the gap alone controls spacing. */
+.schedule-row-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.schedule-row-actions .text-button {
+  margin-left: 0;
+}
+
+.pager {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  margin-top: 16px;
+}
+
+.pager .text-button {
+  margin-left: 0;
+}
+
+.archived-load-more {
+  justify-self: start;
+  margin-top: 4px;
+}
+
 /* Slot builder */
 .slot-builder {
   display: grid;
@@ -999,6 +1046,7 @@ input:focus {
   text-transform: uppercase;
 }
 .detail-list dd { margin: 0; overflow-wrap: anywhere; font-size: 0.95rem; }
+.detail-list dd a { color: var(--teal); text-underline-offset: 3px; }
 .detail-actions {
   display: flex;
   gap: 12px;
@@ -1945,3 +1993,103 @@ input:focus {
 }
 .danger-button:hover { background: #b83c35; }
 .danger-button:disabled { cursor: not-allowed; opacity: 0.6; }
+
+/* ── Admin on a phone ──────────────────────────────────────────────────────────
+   A third breakpoint on top of the usual 860/520 pair. 860px is only where
+   `.dashboard-grid` drops to one column — panels are still ~800px wide there, so the
+   horizontal admin rows are fine. But a row carrying three action buttons is already
+   broken well before 520px, so the stacking has to start at 640px.
+
+   Kept last in the file so it wins over the earlier 520px block for the handful of
+   selectors they share (`.panel` padding, `.panel-heading .primary-button` width). */
+@media (max-width: 640px) {
+  /* Reclaim horizontal space for the row content. */
+  .profile-view { padding: 32px 16px 56px; }
+  .panel { padding: 16px; }
+
+  /* Let list rows wrap instead of squeezing: a slot row's Delete button, or a user
+     row's role, drops below the info block rather than crushing it. */
+  .user-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding: 12px 14px;
+  }
+
+  .user-row > .text-button { margin-left: 0; }
+
+  /* Booking rows become a stacked card: name + status on the top line, service and
+     date beneath, actions on their own full-width bar. Two classes so this reliably
+     beats the base `.user-row` flex rule regardless of source order. */
+  .user-row.user-row--booking {
+    align-items: start;
+    display: grid;
+    gap: 8px 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .user-row--booking .row-info { grid-area: 1 / 1; }
+  .user-row--booking > strong { grid-area: 1 / 2; justify-self: end; }
+
+  .user-row--booking .schedule-row-actions {
+    border-top: 1px solid var(--line);
+    display: grid;
+    gap: 8px;
+    grid-auto-columns: 1fr; /* equal widths whether there are two buttons or three */
+    grid-auto-flow: column;
+    grid-column: 1 / -1;
+    padding-top: 10px;
+  }
+
+  .user-row--booking .schedule-row-actions .text-button {
+    font-size: 0.85rem;
+    min-height: 44px;
+    padding: 0 6px;
+    width: 100%;
+  }
+
+  /* Filter tabs keep wrapping (nothing gets hidden) but share each row evenly. */
+  .profile-tabs {
+    gap: 0;
+    margin-bottom: 20px;
+  }
+
+  .profile-tab {
+    flex: 1 1 auto;
+    font-size: 0.88rem;
+    padding: 10px;
+    text-align: center;
+  }
+
+  /* The 520px rule stretches `.panel-heading .primary-button` to full width, which
+     squashes the List/Calendar toggle sitting beside Refresh. Keep them side by side. */
+  .schedule-controls {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .panel-heading .schedule-controls .primary-button { width: auto; }
+  .schedule-toggle button { padding: 8px 14px; }
+  .schedule-calendar { max-width: 100%; }
+
+  /* Dialogs: stack the action buttons full-width instead of packing them onto one row. */
+  .detail-card {
+    border-radius: 14px;
+    max-height: 92vh;
+    padding: 20px;
+  }
+
+  .detail-list { gap: 10px; }
+  .detail-list > div { padding-bottom: 10px; }
+  .confirm-card { padding: 22px; }
+
+  .confirm-actions,
+  .detail-actions {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .confirm-actions .bk-btn,
+  .detail-actions .bk-btn { width: 100%; }
+
+  .detail-actions { margin-top: 18px; }
+}
