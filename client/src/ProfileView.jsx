@@ -378,7 +378,7 @@ function ScheduleBookingsPanel({
           const displayStatus = pending ? 'PENDING' : booking.status;
           return (
           <div
-            className="user-row user-row--clickable"
+            className="user-row user-row--clickable user-row--booking"
             key={booking.id}
             onClick={() => setBookingDetail(booking)}
             role="button"
@@ -386,10 +386,17 @@ function ScheduleBookingsPanel({
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setBookingDetail(booking); } }}
           >
             <div className="row-info">
-              <span>#{booking.id} &middot; {booking.userName}</span>
-              <span className="form-hint">
-                {booking.slotTitle} &middot; {formatDate(booking.slotStartTime)}
+              <span className="booking-row-name">
+                {booking.userName}
+                <span className="booking-row-id">#{booking.id}</span>
               </span>
+              {/* The catalog service the client actually picked is more useful than the slot
+                  label; guest/legacy rows without one fall back to the slot title. */}
+              <span className="form-hint">
+                {booking.serviceName || booking.slotTitle}
+                {booking.technician ? ` · ${booking.technician}` : ''}
+              </span>
+              <span className="form-hint">{formatDate(booking.slotStartTime)}</span>
             </div>
             <strong className={statusClass(displayStatus)}>
               {displayStatus}

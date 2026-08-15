@@ -64,9 +64,25 @@ export function BookingDetailModal({ bookingDetail, bookingDetailRef, statusClas
         <strong className={`detail-status ${statusClass(displayStatus)}`}>{displayStatus}</strong>
         <dl className="detail-list">
           <div><dt>Name</dt><dd>{bookingDetail.userName || '—'}</dd></div>
-          <div><dt>Email</dt><dd>{bookingDetail.customerEmail || '—'}</dd></div>
-          <div><dt>Phone</dt><dd>{bookingDetail.phone || '—'}</dd></div>
-          <div><dt>Instagram</dt><dd>{bookingDetail.instagram || '—'}</dd></div>
+          {/* Contact details are links so an admin on a phone can call/email/DM straight
+              from the booking instead of copying the value out by hand. */}
+          <div><dt>Email</dt><dd>{bookingDetail.customerEmail
+            ? <a href={`mailto:${bookingDetail.customerEmail}`}>{bookingDetail.customerEmail}</a>
+            : '—'}</dd></div>
+          <div><dt>Phone</dt><dd>{bookingDetail.phone
+            ? <a href={`tel:${bookingDetail.phone}`}>{bookingDetail.phone}</a>
+            : '—'}</dd></div>
+          <div><dt>Instagram</dt><dd>{bookingDetail.instagram
+            ? (
+              <a
+                href={`https://instagram.com/${String(bookingDetail.instagram).replace(/^@/, '')}`}
+                rel="noreferrer"
+                target="_blank"
+              >
+                {bookingDetail.instagram}
+              </a>
+            )
+            : '—'}</dd></div>
           <div><dt>Service</dt><dd>{bookingDetail.slotTitle}</dd></div>
           <div><dt>When</dt><dd>{formatDate(bookingDetail.slotStartTime)} &rarr; {formatDate(bookingDetail.slotEndTime)}</dd></div>
           <div><dt>Booked on</dt><dd>{formatTimestamp(bookingDetail.createdAt)}</dd></div>
