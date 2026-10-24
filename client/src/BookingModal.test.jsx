@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import BookingModal from './BookingModal';
+import { CatalogProvider } from './CatalogContext';
+import CATALOG from './__fixtures__/catalog.json';
 
 // ── fixtures ──────────────────────────────────────────────────────────────────
 // Slots are placed in the currently-displayed calendar month so the day cell is
@@ -19,16 +21,32 @@ const SLOTS = [
   { id: 103, startTime: `${DATE_STR}T09:00:00Z`, endTime: `${DATE_STR}T13:00:00Z`, available: false }, // filtered out
 ];
 
-function mockSlots(slots = SLOTS) {
-  global.fetch = jest.fn(() =>
-    Promise.resolve({ ok: true, json: () => Promise.resolve(slots) }),
-  );
+function jsonResponse(body, status = 200) {
+  return Promise.resolve({
+    ok: status >= 200 && status < 300,
+    status,
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
+  });
+}
+
+// Availability for any quote, and `catalog` for GET /api/catalog (the acceptance-time re-check).
+function mockSlots(slots = SLOTS, catalog = CATALOG) {
+  global.fetch = jest.fn((url) => (
+    String(url).includes('/api/catalog') ? jsonResponse(catalog) : jsonResponse(slots)
+  ));
+}
+
+// The modal prices from the live catalog (CatalogContext). Start it ready with today's catalog so
+// no /api/catalog request is made unless a test triggers a refresh.
+function withCatalog(ui, catalog = CATALOG) {
+  return <CatalogProvider initial={catalog}>{ui}</CatalogProvider>;
 }
 
 function renderModal(props = {}) {
   const onClose = jest.fn();
   const onConfirm = jest.fn().mockResolvedValue(undefined);
-  render(<BookingModal onClose={onClose} onConfirm={onConfirm} {...props} />);
+  render(withCatalog(<BookingModal onClose={onClose} onConfirm={onConfirm} {...props} />));
   return { onClose, onConfirm };
 }
 
@@ -62,7 +80,8 @@ async function toTermsStep(name = 'Alice', email = 'alice@example.com') {
 async function toDepositStep(name = 'Alice', email = 'alice@example.com') {
   await toTermsStep(name, email);
   await userEvent.click(screen.getByRole('checkbox'));
-  await clickContinue(); // step 5 — Deposit
+  await clickContinue(); // step 5 — Deposit (after the acceptance-time catalog re-check)
+  await screen.findByAltText('PayNow S$30 deposit QR code');
 }
 
 beforeEach(() => {
@@ -248,6 +267,7 @@ describe('BookingModal — confirm flow', () => {
         nailArtId: 'none',
         removalId: 'none',
         repairIds: [],
+        catalogVersion: CATALOG.version, // the version the customer accepted
         time: '10:00',
         date: DATE_STR,
       }),
@@ -302,7 +322,7 @@ describe('BookingModal — confirm flow', () => {
     await clickContinue(); // → T&C (step 4)
     await userEvent.click(screen.getByRole('checkbox'));
     await clickContinue(); // → Deposit (step 5)
-    fireEvent.load(screen.getByAltText('PayNow S$30 deposit QR code')); // QR loaded → confirm ungated
+    fireEvent.load(await screen.findByAltText('PayNow S$30 deposit QR code')); // QR loaded → confirm ungated
     await userEvent.click(screen.getByRole('checkbox')); // confirm the deposit was paid
     await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
 
@@ -315,7 +335,7 @@ describe('BookingModal — confirm flow', () => {
 
   test('surfaces the error message when onConfirm rejects', async () => {
     const onConfirm = jest.fn().mockRejectedValue(new Error('Slot already taken.'));
-    render(<BookingModal onClose={jest.fn()} onConfirm={onConfirm} />);
+    render(withCatalog(<BookingModal onClose={jest.fn()} onConfirm={onConfirm} />));
     await toDepositStep();
     fireEvent.load(screen.getByAltText('PayNow S$30 deposit QR code')); // QR loaded → confirm ungated
     await userEvent.click(screen.getByRole('checkbox')); // confirm the deposit was paid
@@ -352,5 +372,230 @@ describe('BookingModal — slots fetch failure is non-fatal', () => {
     // every day cell is disabled because no slots loaded
     const day15 = await screen.findByRole('button', { name: '15' });
     expect(day15).toBeDisabled();
+  });
+});
+
+// ── catalog changes mid-checkout ─────────────────────────────────────────────────
+// A republished catalog (new version) derived from today's: tweak via `edit(draftCopy)`.
+function republished(version, edit) {
+  const next = JSON.parse(JSON.stringify(CATALOG));
+  next.version = version;
+  edit(next);
+  return next;
+}
+const classicAt = (price) => republished(2, (c) => {
+  c.NAIL_SERVICES.find((s) => s.id === 'classic').price = price;
+});
+
+// Swap what GET /api/catalog returns from now on (availability is unchanged unless given).
+function serveCatalog(catalog, slots = SLOTS) {
+  mockSlots(slots, catalog);
+}
+
+// The customer returns to the tab: CatalogContext re-fetches on window focus.
+async function refocusTab() {
+  await act(async () => { window.dispatchEvent(new Event('focus')); });
+}
+
+const depositClaims = () => global.fetch.mock.calls.filter(
+  ([url, opts]) => String(url).includes('/api/deposit-claims') && opts?.method === 'POST',
+);
+
+// Reach the deposit step with the QR loaded and "I have paid" ticked.
+async function toPaidDepositStep() {
+  await toDepositStep();
+  fireEvent.load(screen.getByAltText('PayNow S$30 deposit QR code'));
+  await userEvent.click(screen.getByRole('checkbox', { name: /I have paid/ }));
+}
+
+const apiError = (message, code) => Object.assign(new Error(message), { status: 409, code });
+
+describe('BookingModal — approval is bound to the reviewed catalog version', () => {
+  test('the T&C step recaps the quote being accepted', async () => {
+    renderModal();
+    await toTermsStep();
+
+    const recap = screen.getByText('Total estimate').closest('.bk-summary');
+    expect(within(recap).getByText('S$58')).toBeInTheDocument();
+    expect(within(recap).getByText('45 min')).toBeInTheDocument();
+    expect(screen.getByText('Deposit due')).toBeInTheDocument();
+  });
+
+  test('a publish between showing the recap and accepting it is not an approval of the new price', async () => {
+    const { onConfirm } = renderModal();
+    await toTermsStep(); // recap priced from v1 (Classic S$58)
+    serveCatalog(classicAt(62)); // admin publishes v2 meanwhile
+
+    await userEvent.click(screen.getByRole('checkbox'));
+    await clickContinue();
+
+    // Still on T&C, now showing the v2 quote, with the acceptance withdrawn.
+    expect(await screen.findByText(/changed from S\$58 to S\$62/)).toBeInTheDocument();
+    const recap = screen.getByText('Total estimate').closest('.bk-summary');
+    expect(within(recap).getByText('S$62')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    expect(screen.queryByAltText('PayNow S$30 deposit QR code')).not.toBeInTheDocument();
+
+    // Explicit re-acceptance of the v2 quote goes through and is what gets submitted.
+    await userEvent.click(screen.getByRole('checkbox'));
+    await clickContinue();
+    fireEvent.load(await screen.findByAltText('PayNow S$30 deposit QR code'));
+    await userEvent.click(screen.getByRole('checkbox', { name: /I have paid/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+    expect(onConfirm.mock.calls[0][0]).toMatchObject({ catalogVersion: 2, total: 62 });
+  });
+
+  test('a refresh that finds no change keeps the approved version', async () => {
+    const { onConfirm } = renderModal();
+    await toPaidDepositStep();
+
+    await refocusTab(); // same v1 comes back
+
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+    expect(onConfirm.mock.calls[0][0].catalogVersion).toBe(1);
+  });
+
+  test('a background refresh on the deposit step invalidates the approval instead of re-pricing it', async () => {
+    const { onConfirm } = renderModal();
+    await toPaidDepositStep(); // accepted v1
+    serveCatalog(classicAt(62));
+
+    await refocusTab();
+
+    // Back on T&C with the new quote; nothing was submitted at a price they didn't accept.
+    expect(await screen.findByText(/changed from S\$58 to S\$62/)).toBeInTheDocument();
+    expect(screen.getByText(/I have read and agree/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Confirm Booking' })).not.toBeInTheDocument();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+});
+
+describe('BookingModal — recovery keeps a paid deposit safe', () => {
+  test('CATALOG_VERSION_MISMATCH: back to review with the new total, deposit kept, salon alerted once', async () => {
+    const onConfirm = jest.fn().mockRejectedValue(
+      apiError('Our prices were just updated — please review your booking.', 'CATALOG_VERSION_MISMATCH'));
+    render(withCatalog(<BookingModal onClose={jest.fn()} onConfirm={onConfirm} />));
+    await toPaidDepositStep();
+    serveCatalog(classicAt(62)); // the server already has v2
+
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+
+    expect(await screen.findByText(/changed from S\$58 to S\$62/)).toBeInTheDocument();
+    expect(screen.getByText(/I have read and agree/)).toBeInTheDocument(); // T&C (review) step
+    expect(screen.getByText(/already paid your S\$30 deposit/)).toBeInTheDocument();
+    await waitFor(() => expect(depositClaims()).toHaveLength(1));
+    expect(JSON.parse(depositClaims()[0][1].body).reason).toMatch(/Prices updated during checkout/);
+
+    // Re-accept → the deposit is still marked paid; the customer is told not to pay again.
+    await userEvent.click(screen.getByRole('checkbox'));
+    await clickContinue();
+    expect(await screen.findByRole('checkbox', { name: /I have paid/ })).toBeChecked();
+    expect(screen.getByRole('note')).toHaveTextContent(/do not pay again/i);
+  });
+
+  test('regression: a background refresh that hides the paid-for service routes to step 0 and alerts the salon once', async () => {
+    renderModal();
+    await toPaidDepositStep();
+    serveCatalog(republished(2, (c) => {
+      c.NAIL_SERVICES = c.NAIL_SERVICES.filter((s) => s.id !== 'classic');
+    }));
+
+    await refocusTab();
+
+    // Service step, with the no-longer-offered explanation and the contact fallback.
+    expect(await screen.findByText(/No longer offered, so removed from your booking: Classic Manicure/)).toBeInTheDocument();
+    expect(screen.getByText('Please choose another service.')).toBeInTheDocument();
+    expect(screen.getByText(/contact us with your payment receipt/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Classic Manicure/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    await waitFor(() => expect(depositClaims()).toHaveLength(1));
+  });
+
+  test('a refresh to v2 then a server mismatch for the same v2 reports the deposit only once', async () => {
+    const onConfirm = jest.fn().mockRejectedValue(
+      apiError('Our prices were just updated — please review your booking.', 'CATALOG_VERSION_MISMATCH'));
+    render(withCatalog(<BookingModal onClose={jest.fn()} onConfirm={onConfirm} />));
+    await toPaidDepositStep();
+    serveCatalog(classicAt(62));
+
+    await refocusTab(); // recovery #1 (v2) — reported
+    await screen.findByText(/changed from S\$58 to S\$62/);
+    await userEvent.click(screen.getByRole('checkbox'));
+    await clickContinue(); // re-accept v2
+    fireEvent.load(await screen.findByAltText('PayNow S$30 deposit QR code'));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' })); // server: mismatch again
+
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+    await screen.findByText(/I have read and agree/);
+    expect(depositClaims()).toHaveLength(1);
+  });
+
+  test('a hidden selected add-on resets to "none" and is called out', async () => {
+    renderModal();
+    await toAddonsStep();
+    await userEvent.click(screen.getByRole('button', { name: /Tier 2 — Layered/ }));
+    await clickContinue(); // date & time
+    serveCatalog(republished(2, (c) => {
+      c.NAIL_ART = c.NAIL_ART.filter((a) => a.id !== 'tier2');
+    }));
+
+    await refocusTab();
+
+    expect(await screen.findByText(/removed from your booking: Tier 2 — Layered/)).toBeInTheDocument();
+    // Back on add-ons with the free option selected again.
+    const none = screen.getByRole('button', { name: /No design/ });
+    expect(none).toHaveClass('bk-option--selected');
+    expect(screen.queryByRole('button', { name: /Tier 2 — Layered/ })).not.toBeInTheDocument();
+  });
+
+  test('a republish that makes the picked time no longer fit sends the customer back to pick another', async () => {
+    renderModal();
+    await toDetailsStep(); // 10:00 picked
+    // v2 lengthens Classic; the 10:00 start no longer fits.
+    serveCatalog(
+      republished(2, (c) => { c.NAIL_SERVICES.find((s) => s.id === 'classic').durationMin = 240; }),
+      SLOTS.filter((slot) => !String(slot.startTime).includes('T10:00')),
+    );
+
+    await refocusTab();
+
+    expect(await screen.findByText('Please pick another time.')).toBeInTheDocument();
+    await waitFor(() => {
+      const urls = global.fetch.mock.calls.map(([url]) => String(url));
+      expect(urls.filter((u) => u.includes('/api/slots/available?')).length).toBeGreaterThan(0);
+    });
+    expect(screen.getByText('Estimated duration:')).toBeInTheDocument(); // date & time step
+    expect(screen.queryByRole('button', { name: '10:00' })).not.toBeInTheDocument();
+  });
+
+  test('SLOT_UNAVAILABLE sends the customer back to time selection with the deposit kept', async () => {
+    const onConfirm = jest.fn().mockRejectedValue(apiError('This time is fully booked.', 'SLOT_UNAVAILABLE'));
+    render(withCatalog(<BookingModal onClose={jest.fn()} onConfirm={onConfirm} />));
+    await toPaidDepositStep();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+
+    expect(await screen.findByText('Please pick another time.')).toBeInTheDocument();
+    expect(screen.getByText('This time is fully booked.')).toBeInTheDocument();
+    expect(screen.getByText('Estimated duration:')).toBeInTheDocument();
+    expect(screen.getByText(/already paid your S\$30 deposit/)).toBeInTheDocument();
+    await waitFor(() => expect(depositClaims()).toHaveLength(1));
+  });
+
+  test('a plain 409 (e.g. booking cap) just shows its message on the deposit step', async () => {
+    const onConfirm = jest.fn().mockRejectedValue(
+      Object.assign(new Error('You already have the maximum number of upcoming bookings.'), { status: 409 }));
+    render(withCatalog(<BookingModal onClose={jest.fn()} onConfirm={onConfirm} />));
+    await toPaidDepositStep();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+
+    expect(await screen.findByText('You already have the maximum number of upcoming bookings.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeInTheDocument(); // not routed away
+    expect(screen.queryByText('Our prices were just updated.')).not.toBeInTheDocument();
   });
 });

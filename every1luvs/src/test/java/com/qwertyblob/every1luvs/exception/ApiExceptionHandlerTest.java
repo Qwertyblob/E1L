@@ -22,6 +22,19 @@ class ApiExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().message()).isEqualTo("Email already registered.");
+        assertThat(response.getBody().code()).isNull();
+    }
+
+    @Test
+    void handleResponseStatusException_passesThroughAMachineReadableCode() {
+        ResponseStatusException exception = new CodedResponseStatusException(HttpStatus.CONFLICT,
+                "Our prices were just updated — please review your booking.",
+                CodedResponseStatusException.CATALOG_VERSION_MISMATCH);
+
+        ResponseEntity<ErrorResponse> response = handler.handleResponseStatusException(exception);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().code()).isEqualTo("CATALOG_VERSION_MISMATCH");
     }
 
     @Test

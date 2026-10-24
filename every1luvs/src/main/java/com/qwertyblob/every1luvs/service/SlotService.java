@@ -37,13 +37,16 @@ public class SlotService {
     private final BookingRepository bookingRepository;
     private final SchedulingGuard schedulingGuard;
     private final SchedulingLockRepository schedulingLockRepository;
+    private final CatalogService catalogService;
 
     public SlotService(SlotRepository slotRepository, BookingRepository bookingRepository,
-                       SchedulingGuard schedulingGuard, SchedulingLockRepository schedulingLockRepository) {
+                       SchedulingGuard schedulingGuard, SchedulingLockRepository schedulingLockRepository,
+                       CatalogService catalogService) {
         this.slotRepository = slotRepository;
         this.bookingRepository = bookingRepository;
         this.schedulingGuard = schedulingGuard;
         this.schedulingLockRepository = schedulingLockRepository;
+        this.catalogService = catalogService;
     }
 
     @Transactional
@@ -188,7 +191,7 @@ public class SlotService {
     // a hint, not a guarantee (hence no lock here). serviceId is required; add-ons default to "none",
     // and an unknown/partial quote is a 400.
     public List<SlotResponse> listAvailableSlots(String serviceId, String nailArtId, String removalId) {
-        int durationMin = BookingCatalog.totalDurationMin(serviceId, nailArtId, removalId)
+        int durationMin = catalogService.current().totalDurationMin(serviceId, nailArtId, removalId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "A valid service selection is required to check availability."));
 

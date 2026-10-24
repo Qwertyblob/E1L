@@ -1338,6 +1338,13 @@ input:focus {
   margin: 0;
 }
 
+.catalog-status {
+  margin: 0 0 24px;
+  text-align: center;
+  color: var(--muted);
+}
+.catalog-status--error { color: var(--coral); }
+
 .service-card-grid {
   display: grid;
   gap: 24px;
@@ -2092,4 +2099,107 @@ input:focus {
   .detail-actions .bk-btn { width: 100%; }
 
   .detail-actions { margin-top: 18px; }
+}
+
+/* ── Admin: confirm dialog detail list (e.g. catalog publish diff) ── */
+.confirm-details {
+  color: var(--ink);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  margin: -12px 0 24px;
+  max-height: 40vh;
+  overflow-y: auto;
+  padding-left: 20px;
+}
+
+/* ── Admin: Services & prices editor (CatalogEditor.jsx) ── */
+.catalog-status-bar {
+  align-items: center;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+}
+.catalog-state { font-size: 0.95rem; }
+.catalog-state--draft { color: var(--coral); }
+.catalog-meta { color: var(--muted); flex: 1 1 220px; font-size: 0.85rem; }
+.catalog-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.catalog-load-latest { margin-left: 12px; min-height: 32px; }
+.catalog-fieldset { border: 0; margin: 0; min-width: 0; padding: 0; }
+.catalog-section { margin-top: 28px; }
+.catalog-section-head {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.catalog-section-head h4 { font-size: 1.1rem; margin: 0; }
+.catalog-items { display: grid; gap: 12px; list-style: none; margin: 0; padding: 0; }
+.catalog-item {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.catalog-item--hidden { background: var(--paper); }
+.catalog-item--fixed { gap: 4px; }
+.catalog-item-head { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.catalog-item-title { font-weight: 800; overflow-wrap: anywhere; }
+.catalog-item-move { display: flex; gap: 4px; margin-left: auto; }
+.catalog-item-move .text-button { min-height: 32px; min-width: 40px; padding: 0 10px; }
+.catalog-badge {
+  background: #efebe4;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  text-transform: uppercase;
+}
+.catalog-badge--new { background: rgba(8, 127, 131, 0.12); color: var(--teal-dark); }
+.catalog-fields { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+.catalog-field { display: grid; gap: 4px; min-width: 0; }
+.catalog-field label { color: var(--muted); font-size: 0.8rem; font-weight: 800; }
+.catalog-field input,
+.catalog-field textarea {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  min-height: 40px;
+  padding: 8px 10px;
+  width: 100%;
+}
+.catalog-field textarea { resize: vertical; }
+.catalog-field:has(textarea) { grid-column: 1 / -1; }
+.catalog-field [aria-invalid='true'] { border-color: var(--coral); }
+.catalog-field-hint { color: var(--muted); font-size: 0.78rem; }
+.catalog-field-error { color: #982d27; font-size: 0.78rem; }
+.catalog-toggle {
+  align-items: center;
+  color: var(--ink);
+  display: inline-flex;
+  font-size: 0.9rem;
+  font-weight: 600;
+  gap: 8px;
+}
+/* Undo the global full-width text-input sizing for the editor's checkboxes. */
+.catalog-toggle input {
+  height: 18px;
+  min-height: 0;
+  padding: 0;
+  width: 18px;
+}
+.catalog-fields .catalog-toggle { grid-column: 1 / -1; }
+.catalog-item-foot { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; }
+
+@media (max-width: 640px) {
+  .catalog-fields { grid-template-columns: 1fr; }
+  .catalog-actions { width: 100%; }
+  .catalog-actions .primary-button { flex: 1 1 auto; }
 }

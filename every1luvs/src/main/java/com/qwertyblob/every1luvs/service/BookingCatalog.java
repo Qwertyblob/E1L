@@ -1,27 +1,25 @@
 package com.qwertyblob.every1luvs.service;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import tools.jackson.databind.json.JsonMapper;
+import com.qwertyblob.every1luvs.dto.CatalogDocument;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
- * Server-side catalog of bookable services and add-ons. It is the authoritative source
- * for prices and display names so the backend can recompute a booking's total instead
- * of trusting client-supplied values.
+ * An immutable snapshot of one PUBLISHED catalog version: the authoritative prices, durations and
+ * display names the backend prices a booking against (it never trusts client-supplied values).
  *
- * <p>The data is loaded from {@code /catalog/services.json} on the classpath, which the
- * Maven build copies verbatim from {@code client/src/services.json} — the single canonical
- * source the booking UI also renders from. Edit prices/options in that one file.
+ * <p>Instances come from {@link CatalogService#current()}. A booking calculation takes ONE instance
+ * and uses it throughout, so every name, price and duration in a booking — and the
+ * {@link #versionId()} checked against the customer's reviewed quote — come from the same version
+ * even if an admin publishes mid-request.
+ *
+ * <p>Hidden items are excluded, so a hidden id is rejected (400) exactly like an unknown one.
  */
 public final class BookingCatalog {
-
-    private static final String CATALOG_RESOURCE = "/catalog/services.json";
 
     /**
      * A bookable service with its price (SGD, whole dollars).
@@ -29,52 +27,60 @@ public final class BookingCatalog {
     public record Service(String id, String name, int price, int durationMin) {
     }
 
-    /** A priced add-on (nail-art tier or removal option). {@code durationMin} is the extra time it adds. */
+    /** A priced add-on (nail-art tier, removal option or repair). {@code durationMin} is the extra time it adds. */
     public record AddOn(String id, String name, int price, int durationMin) {
     }
 
     public static final String DEFAULT_ADD_ON = "none";
+    // Display names of the two "none" options. Fixed (CatalogValidator rejects renaming them)
+    // because booking emails recognise these exact snapshot strings to omit an empty add-on line.
+    public static final String NO_NAIL_ART_NAME = "No design (plain colour only)";
+    public static final String NO_REMOVAL_NAME = "No removal needed";
 
-    // Raw shapes of the shared JSON. Presentation-only fields (label, desc, duration, time,
-    // popular, …) are intentionally ignored here — the backend needs id/name/price plus the
-    // numeric durationMin (used to surface how long a service/add-on takes).
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record RawService(String id, String name, int price, int durationMin) {
-    }
+    private final long versionId;
+    private final CatalogDocument document;
+    private final Map<String, Service> services;
+    private final Map<String, AddOn> nailArt;
+    private final Map<String, AddOn> removal;
+    private final Map<String, AddOn> repairs;
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record RawAddOn(String id, String name, String sub, int price, int durationMin) {
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record CatalogData(List<RawService> NAIL_SERVICES,
-                               List<RawAddOn> NAIL_ART, List<RawAddOn> REMOVAL,
-                               List<RawAddOn> REPAIRS) {
-    }
-
-    private static final Map<String, Service> SERVICES;
-    private static final Map<String, AddOn> NAIL_ART;
-    private static final Map<String, AddOn> REMOVAL;
-    private static final Map<String, AddOn> REPAIRS;
-
-    static {
-        CatalogData data = loadCatalog();
-        SERVICES = services(data.NAIL_SERVICES());
+    private BookingCatalog(long versionId, CatalogDocument document) {
+        this.versionId = versionId;
+        this.document = document;
+        CatalogDocument visible = document.visibleOnly();
+        this.services = index(visible.nailServices(), CatalogDocument.ServiceItem::id,
+                item -> new Service(item.id(), item.name(), item.price(), item.durationMin()));
         // Nail-art names are already distinct (Tier 1/2/3), so use them verbatim.
-        NAIL_ART = addOns(data.NAIL_ART(), false);
-        // Removal names collide ("Gel / Hard Gel" by-us vs by-others), so disambiguate with
-        // the sub-label for clear admin records.
-        REMOVAL = addOns(data.REMOVAL(), true);
-        // Repair names are distinct; they carry price 0 / durationMin 0 by design (quoted in
-        // person), so they never move a booking's total or occupied interval.
-        REPAIRS = addOns(data.REPAIRS(), false);
+        this.nailArt = index(visible.nailArt(), CatalogDocument.AddOnItem::id,
+                item -> new AddOn(item.id(), item.name(), item.price(), item.durationMin()));
+        // Removal names collide ("Gel / Hard Gel" by-us vs by-others), so disambiguate with the
+        // sub-label for clear admin records. CatalogValidator caps name/sub so this fits the
+        // removal VARCHAR(255) snapshot column.
+        this.removal = index(visible.removal(), CatalogDocument.AddOnItem::id,
+                item -> new AddOn(item.id(), removalName(item), item.price(), item.durationMin()));
+        // Repairs are quoted in person: always price 0 / durationMin 0, so they never move a
+        // booking's total or occupied interval — only their names are recorded.
+        this.repairs = index(visible.repairs(), CatalogDocument.RepairItem::id,
+                item -> new AddOn(item.id(), item.name(), 0, 0));
     }
 
-    private BookingCatalog() {
+    /** Build a snapshot for a validated document; {@code versionId} is its PUBLISHED row id. */
+    public static BookingCatalog of(long versionId, CatalogDocument document) {
+        return new BookingCatalog(versionId, document);
     }
 
-    public static Optional<Service> service(String id) {
-        return Optional.ofNullable(id == null ? null : SERVICES.get(id));
+    /** The PUBLISHED row id this snapshot was built from — the customer-facing catalog version. */
+    public long versionId() {
+        return versionId;
+    }
+
+    /** The full document, hidden items included. */
+    public CatalogDocument document() {
+        return document;
+    }
+
+    public Optional<Service> service(String id) {
+        return Optional.ofNullable(id == null ? null : services.get(id));
     }
 
     /**
@@ -84,65 +90,43 @@ public final class BookingCatalog {
      * quote. This is the single source of a booking's occupied-interval length — shared by the
      * confirmation quote and the quote-aware availability check.
      */
-    public static Optional<Integer> totalDurationMin(String serviceId, String nailArtId, String removalId) {
+    public Optional<Integer> totalDurationMin(String serviceId, String nailArtId, String removalId) {
         Optional<Service> service = service(serviceId);
-        Optional<AddOn> nailArt = nailArt(nailArtId);
-        Optional<AddOn> removal = removal(removalId);
-        if (service.isEmpty() || nailArt.isEmpty() || removal.isEmpty()) {
+        Optional<AddOn> art = nailArt(nailArtId);
+        Optional<AddOn> rem = removal(removalId);
+        if (service.isEmpty() || art.isEmpty() || rem.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(service.get().durationMin() + nailArt.get().durationMin() + removal.get().durationMin());
+        return Optional.of(service.get().durationMin() + art.get().durationMin() + rem.get().durationMin());
     }
 
-    public static Optional<AddOn> nailArt(String id) {
-        return Optional.ofNullable(NAIL_ART.get(id == null ? DEFAULT_ADD_ON : id));
+    public Optional<AddOn> nailArt(String id) {
+        return Optional.ofNullable(nailArt.get(id == null ? DEFAULT_ADD_ON : id));
     }
 
-    public static Optional<AddOn> removal(String id) {
-        return Optional.ofNullable(REMOVAL.get(id == null ? DEFAULT_ADD_ON : id));
+    public Optional<AddOn> removal(String id) {
+        return Optional.ofNullable(removal.get(id == null ? DEFAULT_ADD_ON : id));
     }
 
     /**
-     * A repair add-on by id, or empty if unknown. Unlike nail art/removal there is no "none"
+     * A repair add-on by id, or empty if unknown/hidden. Unlike nail art/removal there is no "none"
      * sentinel — repairs are a multi-select list that is simply empty when nothing is picked, so a
      * null id is never a valid selection here.
      */
-    public static Optional<AddOn> repair(String id) {
-        return Optional.ofNullable(id == null ? null : REPAIRS.get(id));
+    public Optional<AddOn> repair(String id) {
+        return Optional.ofNullable(id == null ? null : repairs.get(id));
     }
 
-    private static CatalogData loadCatalog() {
-        try (InputStream in = BookingCatalog.class.getResourceAsStream(CATALOG_RESOURCE)) {
-            if (in == null) {
-                throw new IllegalStateException("Booking catalog resource not found: " + CATALOG_RESOURCE
-                        + " (is the Maven copy-shared-catalog step wired up?)");
-            }
-            return JsonMapper.builder().build().readValue(in, CatalogData.class);
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to load booking catalog from " + CATALOG_RESOURCE, e);
-        }
+    /** The name stored on a booking for a removal option ("Gel / Hard Gel — Done by others"). */
+    static String removalName(CatalogDocument.AddOnItem item) {
+        String sub = item.sub();
+        return sub != null && !sub.isBlank() ? item.name() + " — " + sub : item.name();
     }
 
-    private static Map<String, Service> services(List<RawService> nailServices) {
-        Map<String, Service> map = new LinkedHashMap<>();
-        if (nailServices != null) {
-            for (RawService raw : nailServices) {
-                map.put(raw.id(), new Service(raw.id(), raw.name(), raw.price(), raw.durationMin()));
-            }
-        }
-        return Map.copyOf(map);
-    }
-
-    private static Map<String, AddOn> addOns(List<RawAddOn> items, boolean disambiguateWithSub) {
-        Map<String, AddOn> map = new LinkedHashMap<>();
-        if (items != null) {
-            for (RawAddOn raw : items) {
-                String name = raw.name();
-                if (disambiguateWithSub && raw.sub() != null && !raw.sub().isBlank()) {
-                    name = name + " — " + raw.sub();
-                }
-                map.put(raw.id(), new AddOn(raw.id(), name, raw.price(), raw.durationMin()));
-            }
+    private static <T, V> Map<String, V> index(List<T> items, Function<T, String> id, Function<T, V> mapper) {
+        Map<String, V> map = new LinkedHashMap<>();
+        for (T item : items) {
+            map.put(id.apply(item), mapper.apply(item));
         }
         return Map.copyOf(map);
     }

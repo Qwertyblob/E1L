@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import CatalogEditor from './CatalogEditor';
 import logoBlack from './assets/images/E1LN_Logo/E1LN_Black_Long_Logo.png';
 import {
   appointmentEnded,
@@ -1276,6 +1277,8 @@ function ProfileView({
   archivedSlotsPage,
   archivedSlotsTotal,
   handleDeleteSlot,
+  apiRequest,
+  requestAdminConfirm,
 }) {
   return (
     <div className="landing">
@@ -1325,6 +1328,9 @@ function ProfileView({
           <button className={`profile-tab${profileTab === 'account' ? ' profile-tab--active' : ''}`} onClick={() => selectProfileTab('account')} type="button">Account</button>
           {isAdmin && (
             <button className={`profile-tab${profileTab === 'schedule' ? ' profile-tab--active' : ''}`} onClick={() => selectProfileTab('schedule')} type="button">Schedule</button>
+          )}
+          {isAdmin && (
+            <button className={`profile-tab${profileTab === 'services' ? ' profile-tab--active' : ''}`} onClick={() => selectProfileTab('services')} type="button">Services &amp; Prices</button>
           )}
         </div>
 
@@ -1421,6 +1427,11 @@ function ProfileView({
             archivedSlotsTotal={archivedSlotsTotal}
             handleDeleteSlot={handleDeleteSlot}
           />
+        )}
+
+        {/* ── Services & prices (admin) ── */}
+        {profileTab === 'services' && isAdmin && (
+          <CatalogEditor apiRequest={apiRequest} requestConfirm={requestAdminConfirm} />
         )}
       </div>
     </div>

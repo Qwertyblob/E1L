@@ -17,8 +17,6 @@ jobs:
           java-version: '21'
           cache: maven
           cache-dependency-path: every1luvs/pom.xml
-      # The Maven build copies client/src/services.json onto the classpath
-      # (copy-shared-catalog), so the checkout must include the whole repo root.
       - name: Run tests
         run: ./mvnw -B test
         working-directory: every1luvs

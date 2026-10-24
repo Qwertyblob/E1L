@@ -1,5 +1,6 @@
-# Build context is the REPO ROOT (see docker-compose.yml: context: .), because the Maven
-# build copies the shared catalog from ../client/src/services.json (pom.xml copy-shared-catalog).
+# Build context is the REPO ROOT (see docker-compose.yml: context: .). Paths below are therefore
+# prefixed with every1luvs/. The service catalog is no longer copied from the client: its first-boot
+# seed lives in every1luvs/src/main/resources/catalog/ and the live catalog is in the database.
 # ---- build stage ----
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /build
@@ -8,8 +9,6 @@ WORKDIR /build
 COPY every1luvs/pom.xml every1luvs/pom.xml
 RUN mvn -B -f every1luvs/pom.xml dependency:go-offline
 
-# Shared catalog must sit at ../client/src/services.json relative to the pom (= /build/every1luvs).
-COPY client/src/services.json client/src/services.json
 COPY every1luvs/src every1luvs/src
 
 # Tests are DB/integration-heavy and run in CI/locally, not in the image build.

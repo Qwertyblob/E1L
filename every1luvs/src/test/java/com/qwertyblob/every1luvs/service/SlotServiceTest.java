@@ -9,6 +9,7 @@ import com.qwertyblob.every1luvs.entity.SlotEntity;
 import com.qwertyblob.every1luvs.repository.BookingRepository;
 import com.qwertyblob.every1luvs.repository.SchedulingLockRepository;
 import com.qwertyblob.every1luvs.repository.SlotRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -37,11 +38,18 @@ class SlotServiceTest {
     @Mock SlotRepository slotRepository;
     @Mock BookingRepository bookingRepository;
     @Mock SchedulingLockRepository schedulingLockRepository;
+    @Mock CatalogService catalogService;
     // Real (pure) guard; the finders feeding it drive accept/reject. SchedulingGuardTest covers it
     // in isolation. Unstubbed finders return empty lists, so unconstrained slots always pass.
     @Spy SchedulingGuard schedulingGuard = new SchedulingGuard();
 
     @InjectMocks SlotService slotService;
+
+    @BeforeEach
+    void stubCatalog() {
+        // Availability prices quotes against the live catalog; serve the bundled seed.
+        lenient().when(catalogService.current()).thenReturn(TestCatalogs.seed());
+    }
 
     private static final String FUTURE_START = "2099-06-15T09:00";
     private static final String FUTURE_END   = "2099-06-15T10:00";

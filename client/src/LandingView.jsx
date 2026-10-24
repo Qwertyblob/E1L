@@ -7,14 +7,18 @@ import imgStructuredClassic from './assets/images/Structured_Classic_Manicure.jp
 import imgApresGelX from './assets/images/Apres_Extension.jpg';
 import logoBlack from './assets/images/E1LN_Logo/E1LN_Black_Long_Logo.png';
 import logoWhite from './assets/images/E1LN_Logo/E1LN_White_Long_Logo.png';
-import { NAIL_ART, NAIL_SERVICES, REMOVAL } from './services';
+import { useCatalog } from './CatalogContext';
+import { formatServiceDuration } from './services';
 
+// Photos for the original services. Services the admin adds later have no dedicated photo, so they
+// fall back to the studio background shot.
 const serviceImages = {
   express: imgExpressManicure,
   classic: imgClassicManicure,
   structured: imgStructuredClassic,
   apres: imgApresGelX,
 };
+const DEFAULT_SERVICE_IMAGE = imgBackground;
 
 function ValueIcon({ children }) {
   return (
@@ -82,6 +86,8 @@ function LandingView({
   onSelectSlide,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { catalog, status: catalogStatus } = useCatalog();
+  const { NAIL_SERVICES, NAIL_ART, REMOVAL, REPAIRS } = catalog;
   const closeMenu = () => setMenuOpen(false);
   const handleNav = (action) => () => {
     closeMenu();
@@ -162,11 +168,19 @@ function LandingView({
           <button className="text-link-button featured-service-cta" onClick={onBook} type="button">Request a Slot &#8594;</button>
         </div>
 
+        {/* Prices are admin-editable and fetched live; never show a stale bundled price, so the
+            grid waits for the catalog (or says it's unavailable) instead. */}
+        {catalogStatus === 'loading' && <p className="catalog-status">Loading services…</p>}
+        {catalogStatus === 'error' && (
+          <p className="catalog-status catalog-status--error" role="alert">
+            Our services and prices couldn't be loaded. Please refresh the page.
+          </p>
+        )}
         <div className="service-card-grid">
           {NAIL_SERVICES.map((svc) => (
             <div className="service-card" key={svc.id}>
               <div className="service-card-image-wrapper">
-                <img alt={svc.name} className="service-card-photo" src={serviceImages[svc.id]} />
+                <img alt={svc.name} className="service-card-photo" src={serviceImages[svc.id] || DEFAULT_SERVICE_IMAGE} />
                 {svc.popular && <span className="popular-badge">Popular</span>}
               </div>
               <div className="service-card-body">
@@ -179,7 +193,7 @@ function LandingView({
                   </div>
                 </div>
                 <div className="service-card-footer">
-                  <span className="service-duration-badge">&#128336; {svc.duration}</span>
+                  <span className="service-duration-badge">&#128336; {formatServiceDuration(svc.durationMin)}</span>
                   <button className="service-book-btn" onClick={onBook} type="button">Book</button>
                 </div>
               </div>
@@ -213,17 +227,18 @@ function LandingView({
                   <span className="addon-price">+S${r.price}</span>
                 </div>
               ))}
-              <p className="addons-col-label" style={{ marginTop: '24px' }}>Nail Repairs</p>
-              {[
-                { name: 'Nail Fix', price: 'S$3/nail', desc: 'Simple repair — nail back to a normal, flawless finish.' },
-                { name: 'Single Nail Extension', price: 'S$8/nail', desc: 'Adds length on a broken or short nail for a seamless, balanced set.' },
-              ].map((r) => (
-                <div className="addon-row" key={r.name}>
+              {REPAIRS.length > 0 && (
+                <p className="addons-col-label" style={{ marginTop: '24px' }}>Nail Repairs</p>
+              )}
+              {/* Repairs are quoted in person: the admin-set priceNote (e.g. "S$3/nail") is display
+                  only and never enters a booking total. */}
+              {REPAIRS.map((r) => (
+                <div className="addon-row" key={r.id}>
                   <div>
                     <p className="addon-tier">{r.name}</p>
-                    <p className="addon-desc">{r.desc}</p>
+                    <p className="addon-desc">{r.desc || r.sub}</p>
                   </div>
-                  <span className="addon-price">{r.price}</span>
+                  {r.priceNote && <span className="addon-price">{r.priceNote}</span>}
                 </div>
               ))}
             </div>

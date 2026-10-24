@@ -44,10 +44,10 @@ public class BookingMailService {
     // final bill; the recomputed booking total is the estimate.
     private static final int DEPOSIT_SGD = 30;
 
-    // "none" add-on display names (from services.json) — skip these lines so a plain
+    // "none" add-on display names (fixed in the catalog) — skip these lines so a plain
     // booking doesn't show empty add-ons.
-    private static final String NO_NAIL_ART = "No design (plain colour only)";
-    private static final String NO_REMOVAL = "No removal needed";
+    private static final String NO_NAIL_ART = BookingCatalog.NO_NAIL_ART_NAME;
+    private static final String NO_REMOVAL = BookingCatalog.NO_REMOVAL_NAME;
 
     // Studio arrival details, shown only in the pre-appointment reminder (kept out of the
     // confirmation, whose copy promises the address in a separate email nearer the day).

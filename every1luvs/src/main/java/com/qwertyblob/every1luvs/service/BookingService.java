@@ -6,6 +6,7 @@ import com.qwertyblob.every1luvs.dto.CreateBookingRequest;
 import com.qwertyblob.every1luvs.entity.BookingEntity;
 import com.qwertyblob.every1luvs.entity.SlotEntity;
 import com.qwertyblob.every1luvs.entity.UserEntity;
+import com.qwertyblob.every1luvs.exception.CodedResponseStatusException;
 import com.qwertyblob.every1luvs.repository.BookingRepository;
 import com.qwertyblob.every1luvs.repository.SchedulingLockRepository;
 import com.qwertyblob.every1luvs.repository.SlotRepository;
@@ -49,9 +50,10 @@ public class BookingService {
     private static final int MAX_PHONE_LENGTH = 64;
     private static final int MAX_INSTAGRAM_LENGTH = 255;
     private static final int MAX_NOTES_LENGTH = 2_000;
-    // Repairs are a small fixed catalog (see services.json); cap the multi-select so a caller
-    // can't post an unbounded list for the bounded repairs VARCHAR(255) column.
-    private static final int MAX_REPAIRS = 10;
+    // Cap the repairs multi-select so a caller can't post an unbounded list for the bounded
+    // repairs VARCHAR(255) column. CatalogValidator also caps the VISIBLE repairs at this count
+    // (and their joined names at 255 chars), so every valid selection always fits.
+    static final int MAX_REPAIRS = 10;
     // Inspo image caps. Images are emailed to the salon, never stored, so bound the count and
     // (decoded) size to keep the public request body small and reject non-images. Keep these in
     // step with the client-side checks in BookingModal.jsx and nginx client_max_body_size.
@@ -67,6 +69,7 @@ public class BookingService {
     private final RateLimiterService rateLimiter;
     private final SchedulingGuard schedulingGuard;
     private final SchedulingLockRepository schedulingLockRepository;
+    private final CatalogService catalogService;
 
     // Max concurrent UPCOMING bookings a single account may hold. The initializer is the same as
     // the property default so unit tests (which construct this bean directly) get the real cap.
@@ -79,7 +82,8 @@ public class BookingService {
             UserRepository userRepository,
             RateLimiterService rateLimiter,
             SchedulingGuard schedulingGuard,
-            SchedulingLockRepository schedulingLockRepository
+            SchedulingLockRepository schedulingLockRepository,
+            CatalogService catalogService
     ) {
         this.bookingRepository = bookingRepository;
         this.slotRepository = slotRepository;
@@ -87,6 +91,7 @@ public class BookingService {
         this.rateLimiter = rateLimiter;
         this.schedulingGuard = schedulingGuard;
         this.schedulingLockRepository = schedulingLockRepository;
+        this.catalogService = catalogService;
     }
 
     public BookingResponse createBooking(CreateBookingRequest request, String email) {
@@ -115,6 +120,20 @@ public class BookingService {
             }
         }
 
+        // Take ONE catalog snapshot for this whole booking, so the version check below and every
+        // name, price and duration in the quote come from the same version even if an admin
+        // publishes mid-request.
+        BookingCatalog catalog = catalogService.current();
+        // The customer approved a quote computed from a specific published catalog. If prices or
+        // durations have been republished since (or an old cached SPA sent no version), refuse
+        // rather than book them at a price they never saw; the SPA re-shows the updated quote for
+        // re-acceptance. Checked before the rate limiter so this recoverable retry isn't charged.
+        if (request.catalogVersion() == null || request.catalogVersion() != catalog.versionId()) {
+            throw new CodedResponseStatusException(HttpStatus.CONFLICT,
+                    "Our prices were just updated — please review your booking.",
+                    CodedResponseStatusException.CATALOG_VERSION_MISMATCH);
+        }
+
         // Booking-abuse limits apply to BOTH paths (authenticated bookings used to bypass this).
         // Separate buckets: one per client IP, one per user account.
         if (clientIp != null && !clientIp.isBlank()) {
@@ -136,7 +155,7 @@ public class BookingService {
         // Recompute service/add-on names and price from the server catalog so a caller can't
         // submit fake pricing; the client-sent serviceName/technician/nailArt/removal/totalPrice
         // are ignored in favour of these authoritative values.
-        BookingQuote quote = priceFromCatalog(request);
+        BookingQuote quote = priceFromCatalog(request, catalog);
 
         // Take the shared scheduling lock BEFORE reading the slot/capacity so this confirmation
         // sees a consistent snapshot and can't race another confirmation (or a slot mutation) into
@@ -188,7 +207,8 @@ public class BookingService {
         Instant occupiedEnd = occupiedEnd(occupiedStart, slot.getEndTime(), quote.durationMin());
         if (!schedulingGuard.canAddAppointment(occupiedStart, occupiedEnd,
                 activeAppointmentsBefore(occupiedEnd), activeCapacityTiles(occupiedStart, occupiedEnd))) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "This time is fully booked.");
+            throw new CodedResponseStatusException(HttpStatus.CONFLICT, "This time is fully booked.",
+                    CodedResponseStatusException.SLOT_UNAVAILABLE);
         }
 
         // bookedCount is a display-only count of active direct bookings on this slot — never the
@@ -198,7 +218,8 @@ public class BookingService {
         try {
             slotRepository.saveAndFlush(slot);
         } catch (ObjectOptimisticLockingFailureException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "This slot is fully booked. Please try again.");
+            throw new CodedResponseStatusException(HttpStatus.CONFLICT, "This slot is fully booked. Please try again.",
+                    CodedResponseStatusException.SLOT_UNAVAILABLE);
         }
 
         BookingEntity booking = new BookingEntity();
@@ -307,14 +328,14 @@ public class BookingService {
     // unknown selections. durationMin (service + nail art + removal) defines the booking's
     // occupied interval for SchedulingGuard, so it — like the price — is computed here from the
     // authoritative catalog, never trusted from the client.
-    private BookingQuote priceFromCatalog(CreateBookingRequest request) {
-        BookingCatalog.Service service = BookingCatalog.service(request.serviceId())
+    private BookingQuote priceFromCatalog(CreateBookingRequest request, BookingCatalog catalog) {
+        BookingCatalog.Service service = catalog.service(request.serviceId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Unknown or missing service selection."));
-        BookingCatalog.AddOn nailArt = BookingCatalog.nailArt(request.nailArtId())
+        BookingCatalog.AddOn nailArt = catalog.nailArt(request.nailArtId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Unknown nail art selection."));
-        BookingCatalog.AddOn removal = BookingCatalog.removal(request.removalId())
+        BookingCatalog.AddOn removal = catalog.removal(request.removalId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Unknown removal selection."));
 
@@ -323,13 +344,13 @@ public class BookingService {
         // Repairs are intentionally absent from both sums: the salon quotes and fits them in on
         // the day, so they only contribute their names to the booking record.
         return new BookingQuote(service.name(), nailArt.name(), removal.name(),
-                repairNames(request.repairIds()), total, durationMin);
+                repairNames(request.repairIds(), catalog), total, durationMin);
     }
 
     // Resolve the multi-select repair ids to their canonical catalog names, joined for storage in
     // the single repairs column. Duplicates are collapsed and order follows the request; an
     // unknown id is rejected (400) like any other selection. Null/empty -> null (no repairs).
-    private String repairNames(List<String> repairIds) {
+    private String repairNames(List<String> repairIds, BookingCatalog catalog) {
         if (repairIds == null || repairIds.isEmpty()) {
             return null;
         }
@@ -338,7 +359,7 @@ public class BookingService {
         }
         String names = repairIds.stream()
                 .distinct()
-                .map(id -> BookingCatalog.repair(id)
+                .map(id -> catalog.repair(id)
                         .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                                 "Unknown repair selection."))
                         .name())

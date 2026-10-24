@@ -27,12 +27,18 @@ export function CancelBookingDialog({ confirmCancelId, cancelDialogRef, isCancel
 export function ConfirmDialog({ request, isBusy, onCancel, onConfirm, dialogRef }) {
   if (!request) return null;
 
-  const { title, message, confirmLabel = 'Confirm', busyLabel = 'Working…' } = request;
+  // `details` (optional) lists specifics under the message, e.g. the changes a catalog publish makes.
+  const { title, message, details, confirmLabel = 'Confirm', busyLabel = 'Working…' } = request;
   return (
     <div className="confirm-backdrop">
       <div className="confirm-card" ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title}>
         <h3 className="confirm-title">{title}</h3>
         <p className="confirm-text">{message}</p>
+        {details?.length > 0 && (
+          <ul className="confirm-details">
+            {details.map((line) => <li key={line}>{line}</li>)}
+          </ul>
+        )}
         <div className="confirm-actions">
           <button className="bk-btn bk-btn--ghost" disabled={isBusy} onClick={onCancel} type="button">
             Keep

@@ -7,6 +7,7 @@ import com.qwertyblob.every1luvs.dto.OccupiedInterval;
 import com.qwertyblob.every1luvs.entity.BookingEntity;
 import com.qwertyblob.every1luvs.entity.SlotEntity;
 import com.qwertyblob.every1luvs.entity.UserEntity;
+import com.qwertyblob.every1luvs.exception.CodedResponseStatusException;
 import com.qwertyblob.every1luvs.repository.BookingRepository;
 import com.qwertyblob.every1luvs.repository.SchedulingLockRepository;
 import com.qwertyblob.every1luvs.repository.SlotRepository;
@@ -47,6 +48,7 @@ class BookingServiceTest {
     @Mock UserRepository userRepository;
     @Mock RateLimiterService rateLimiter;
     @Mock SchedulingLockRepository schedulingLockRepository;
+    @Mock CatalogService catalogService;
     // Real (pure) guard — its sweep-line logic is exercised directly here rather than stubbed, so
     // the finders feeding it drive accept/reject. SchedulingGuardTest covers the guard in isolation.
     @Spy SchedulingGuard schedulingGuard = new SchedulingGuard();
@@ -59,7 +61,11 @@ class BookingServiceTest {
         // uses that entity. Default it to the same user for authenticated tests; the deleted-user
         // test overrides this. lenient() because guest-path tests never reach it.
         lenient().when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user()));
+        // Bookings price against the live catalog snapshot; serve the bundled seed as version 1.
+        lenient().when(catalogService.current()).thenReturn(TestCatalogs.seed());
     }
+
+    private static final long CATALOG_VERSION = TestCatalogs.SEED_VERSION;
 
     // ─── createBooking ────────────────────────────────────────────────────────────
 
@@ -68,7 +74,7 @@ class BookingServiceTest {
     private static CreateBookingRequest authBooking(Long slotId) {
         return new CreateBookingRequest(slotId, null, null, null, null, null,
                 null, null, null, null, null,
-                "classic", "junior", "none", "none");
+                "classic", "junior", "none", "none").withCatalogVersion(CATALOG_VERSION);
     }
 
     @Test
@@ -87,7 +93,7 @@ class BookingServiceTest {
         // Client sends a forged cheap price + fake names; the server must ignore them.
         CreateBookingRequest request = new CreateBookingRequest(1L, null, null, null, null, null,
                 "FREE STUFF", "CEO", "diamonds", "premium", 1,
-                "classic", "junior", "tier2", "self-gel");
+                "classic", "junior", "tier2", "self-gel").withCatalogVersion(CATALOG_VERSION);
 
         BookingResponse response = bookingService.createBooking(request, "alice@example.com");
 
@@ -113,7 +119,7 @@ class BookingServiceTest {
         // Both repairs selected (multi-select), plus a duplicate that must be collapsed.
         CreateBookingRequest request = new CreateBookingRequest(1L, null, null, null, null, null,
                 null, null, null, null, null, "classic", "junior", "none", "none", null,
-                List.of("nail-fix", "single-extension", "nail-fix"));
+                List.of("nail-fix", "single-extension", "nail-fix")).withCatalogVersion(CATALOG_VERSION);
 
         BookingResponse response = bookingService.createBooking(request, "alice@example.com");
 
@@ -131,7 +137,7 @@ class BookingServiceTest {
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
         CreateBookingRequest request = new CreateBookingRequest(1L, null, null, null, null, null,
                 null, null, null, null, null, "classic", "junior", "none", "none", null,
-                List.of("free-full-set"));
+                List.of("free-full-set")).withCatalogVersion(CATALOG_VERSION);
 
         var ex = catchThrowableOfType(
                 () -> bookingService.createBooking(request, "alice@example.com"),
@@ -163,7 +169,7 @@ class BookingServiceTest {
     void createBooking_unknownService_throws400() {
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
         CreateBookingRequest request = new CreateBookingRequest(1L, null, null, null, null, null,
-                null, null, null, null, null, "does-not-exist", "junior", "none", "none");
+                null, null, null, null, null, "does-not-exist", "junior", "none", "none").withCatalogVersion(CATALOG_VERSION);
 
         var ex = catchThrowableOfType(
                 () -> bookingService.createBooking(request, "alice@example.com"),
@@ -207,8 +213,76 @@ class BookingServiceTest {
 
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(ex.getReason()).contains("maximum number of upcoming bookings");
+        // Not a slot/catalog problem: uncoded, so the SPA just shows the message.
+        assertThat(ex).isNotInstanceOf(CodedResponseStatusException.class);
         verify(userRepository).findByIdForUpdate(1L); // row lock taken before the count
         verify(bookingRepository, never()).save(any());
+    }
+
+    // ─── catalog version guard ────────────────────────────────────────────────────
+
+    @Test
+    void createBooking_reviewedAnOlderCatalogVersion_throws409CatalogVersionMismatch() {
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+
+        var ex = catchThrowableOfType(
+                () -> bookingService.createBooking(authBooking(1L).withCatalogVersion(CATALOG_VERSION - 1),
+                        "alice@example.com", "203.0.113.9"),
+                CodedResponseStatusException.class);
+
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo(CodedResponseStatusException.CATALOG_VERSION_MISMATCH);
+        // Rejected before the rate limiter (a recoverable retry isn't charged) and before any lock.
+        verifyNoInteractions(rateLimiter, schedulingLockRepository);
+        verify(bookingRepository, never()).save(any());
+    }
+
+    @Test
+    void createBooking_withoutCatalogVersion_throws409CatalogVersionMismatch() {
+        // An SPA tab cached from before this guard existed sends no version at all.
+        var ex = catchThrowableOfType(
+                () -> bookingService.createBooking(
+                        new CreateBookingRequest(1L, "Guest Gina", "gina@example.com", null, null, null,
+                                null, null, null, null, null, "classic", "junior", "none", "none"), null),
+                CodedResponseStatusException.class);
+
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo(CodedResponseStatusException.CATALOG_VERSION_MISMATCH);
+    }
+
+    @Test
+    void createBooking_pricesFromTheOneSnapshotItTook() {
+        // Publish lands mid-request: the snapshot taken first is used for the version check and
+        // every name/price/duration, never a mix of the two versions.
+        SlotEntity slot = slot(3, 0);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+        when(slotRepository.findById(1L)).thenReturn(Optional.of(slot));
+        when(slotRepository.saveAndFlush(slot)).thenReturn(slot);
+        when(catalogService.current()).thenReturn(TestCatalogs.seed(),
+                BookingCatalog.of(CATALOG_VERSION + 1, TestCatalogs.seedDocument()));
+
+        BookingResponse response = bookingService.createBooking(authBooking(1L), "alice@example.com");
+
+        verify(catalogService, times(1)).current();
+        assertThat(response.totalPrice()).isEqualTo(58);
+    }
+
+    @Test
+    void createBooking_hiddenService_throws400LikeAnUnknownOne() {
+        var classic = TestCatalogs.seedDocument().nailServices().get(1);
+        var services = new java.util.ArrayList<>(TestCatalogs.seedDocument().nailServices());
+        services.set(1, new com.qwertyblob.every1luvs.dto.CatalogDocument.ServiceItem(classic.id(), classic.label(),
+                classic.name(), classic.desc(), classic.price(), classic.durationMin(), false, true));
+        var doc = TestCatalogs.seedDocument();
+        when(catalogService.current()).thenReturn(BookingCatalog.of(CATALOG_VERSION,
+                new com.qwertyblob.every1luvs.dto.CatalogDocument(services, doc.nailArt(), doc.removal(), doc.repairs())));
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user()));
+
+        var ex = catchThrowableOfType(
+                () -> bookingService.createBooking(authBooking(1L), "alice@example.com"),
+                ResponseStatusException.class);
+
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     @Test
@@ -258,6 +332,9 @@ class BookingServiceTest {
 
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(ex.getReason()).contains("fully booked");
+        // Coded so the SPA sends the customer back to pick another time.
+        assertThat(ex).isInstanceOfSatisfying(CodedResponseStatusException.class,
+                coded -> assertThat(coded.getCode()).isEqualTo(CodedResponseStatusException.SLOT_UNAVAILABLE));
         assertThat(slot.getBookedCount()).isZero(); // guard rejected before any seat was taken
         verify(bookingRepository, never()).save(any());
     }
@@ -402,7 +479,7 @@ class BookingServiceTest {
         BookingResponse response = bookingService.createBooking(
                 new CreateBookingRequest(1L, "Guest Gina", "gina@example.com", "90001111", "@gina", "ombre please",
                         null, null, null, null, null,
-                        "classic", "junior", "none", "none"),
+                        "classic", "junior", "none", "none").withCatalogVersion(CATALOG_VERSION),
                 null);
 
         assertThat(response.status()).isEqualTo("BOOKED");
@@ -418,7 +495,7 @@ class BookingServiceTest {
                 () -> bookingService.createBooking(
                         new CreateBookingRequest(1L, "  ", "gina@example.com", null, null, null,
                                 null, null, null, null, null,
-                                "classic", "junior", "none", "none"), null),
+                                "classic", "junior", "none", "none").withCatalogVersion(CATALOG_VERSION), null),
                 ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
@@ -431,7 +508,7 @@ class BookingServiceTest {
                 () -> bookingService.createBooking(
                         new CreateBookingRequest(1L, "Guest Gina", "gina@example.com", null, null, null,
                                 null, null, null, null, null,
-                                "classic", "junior", "none", "none", six),
+                                "classic", "junior", "none", "none", six).withCatalogVersion(CATALOG_VERSION),
                         null),
                 ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -444,7 +521,7 @@ class BookingServiceTest {
                 () -> bookingService.createBooking(
                         new CreateBookingRequest(1L, "Guest Gina", "gina@example.com", null, null, null,
                                 null, null, null, null, null,
-                                "classic", "junior", "none", "none", List.of(pdf)),
+                                "classic", "junior", "none", "none", List.of(pdf)).withCatalogVersion(CATALOG_VERSION),
                         null),
                 ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -459,7 +536,7 @@ class BookingServiceTest {
                 () -> bookingService.createBooking(
                         new CreateBookingRequest(1L, "Guest Gina", "gina@example.com", null, null, null,
                                 null, null, null, null, null,
-                                "classic", "junior", "none", "none"),
+                                "classic", "junior", "none", "none").withCatalogVersion(CATALOG_VERSION),
                         null, "203.0.113.9"),
                 ResponseStatusException.class);
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
@@ -492,7 +569,7 @@ class BookingServiceTest {
                 () -> bookingService.createBooking(
                         new CreateBookingRequest(1L, "Guest Gina", "GINA@Example.com", null, null, null,
                                 null, null, null, null, null,
-                                "classic", "junior", "none", "none"), null),
+                                "classic", "junior", "none", "none").withCatalogVersion(CATALOG_VERSION), null),
                 ResponseStatusException.class);
 
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);

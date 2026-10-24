@@ -56,10 +56,11 @@ npm run build                      # production bundle -> dist/
 
 ### Editing services and prices
 
-`client/src/services.json` is the **single source of truth** for bookable services, technician
-tiers, add-ons, prices, and durations. The frontend renders from it, and the Maven build copies it
-onto the backend classpath so the server recomputes booking totals from the same data. Edit prices
-in that one file.
+No code changes needed: sign in as an admin, open **My Profile → Services & Prices**, edit (prices,
+durations, names, descriptions; add new items; hide items you no longer offer), **Save draft**, then
+**Review & publish**. Customers see the live catalog until you publish; existing bookings keep the
+price they were booked at. The catalog lives in the database (`tbl_catalog_versions`);
+`every1luvs/src/main/resources/catalog/seed-services.json` is only used to seed it on first boot.
 
 ## Automated customer emails
 

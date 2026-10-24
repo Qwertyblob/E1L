@@ -26,5 +26,6 @@ Run from `client/`:
 - **Strict CSP (`script-src 'self'`):** `vite.config.js` sets
   `build.modulePreload.polyfill = false` so the build emits no inline `<script>`. Don't
   re-enable it without loosening the CSP in `nginx/nginx.conf`.
-- **Shared service catalog:** `src/services.json` is the single source of truth for
-  services/prices; the Maven build copies it onto the backend classpath. Edit prices there.
+- **Service catalog:** loaded live from `GET /api/catalog` via `src/CatalogContext.jsx` and edited
+  by admins in the Services & Prices tab (`src/CatalogEditor.jsx`). There is no bundled price list;
+  tests use `src/__fixtures__/catalog.json`.

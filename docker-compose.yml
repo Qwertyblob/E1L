@@ -35,7 +35,7 @@ services:
     # tags the result under the same name. ${E1L_IMAGE_TAG:-latest} lets a deploy pin a SHA.
     image: ghcr.io/qwertyblob/e1l-app:${E1L_IMAGE_TAG:-latest}
     build:
-      context: .                       # repo root: Maven build needs ../client/src/services.json
+      context: .                       # repo root: the Dockerfile COPYs repo-relative paths
       dockerfile: every1luvs/Dockerfile
     restart: unless-stopped
     logging: *default-logging
