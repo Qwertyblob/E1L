@@ -234,6 +234,24 @@ class CatalogIntegrationTest {
     }
 
     @Test
+    void catalogPublishedBeforePhotosExisted_getsTheSeedPhotosBackfilledOnStartup() {
+        // Simulate a database whose live catalog predates service photos: no imageIds anywhere.
+        CatalogVersionEntity live = catalogRepository.findByStatus(CatalogVersionEntity.PUBLISHED).orElseThrow();
+        long liveId = live.getId();
+        live.setContent(live.getContent().replaceAll("\"imageId\":\"[^\"]*\"", "\"imageId\":null"));
+        catalogRepository.saveAndFlush(live);
+
+        CatalogService restarted = new CatalogService(catalogRepository, imageRepository, imageSanitizer, transactionManager);
+        restarted.init();
+
+        assertThat(restarted.current().versionId()).as("same live version — content-only fix").isEqualTo(liveId);
+        assertThat(restarted.current().document().nailServices())
+                .extracting(CatalogDocument.ServiceItem::imageId)
+                .containsExactly("seed-express", "seed-classic", "seed-structured", "seed-apres");
+        assertThat(catalogRepository.findById(liveId).orElseThrow().getContent()).contains("\"imageId\":\"seed-classic\"");
+    }
+
+    @Test
     void restart_servesThePublishedRow_notTheSeed() {
         AdminCatalogResponse.Draft draft = createDraft(ADMIN_A, withClassicPrice(66));
         catalogService.publish(new CatalogDraftActionRequest(draft.id(), draft.version()), ADMIN_A);

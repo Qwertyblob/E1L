@@ -30,8 +30,12 @@ import java.io.InputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -91,6 +95,7 @@ public class CatalogService {
     @PostConstruct
     void init() {
         ensureSeedImages();
+        backfillSeedPictures();
         CatalogVersionEntity published;
         try {
             published = transactionTemplate.execute(status ->
@@ -309,6 +314,43 @@ public class CatalogService {
                 // A concurrent startup stored it first — fine.
             }
         }
+    }
+
+    // Catalogs published before service photos existed have services with no imageId; the landing
+    // page would then lose their pictures. Point each original seed service that lacks a photo at
+    // its bundled seed photo, in the live catalog and any draft. Content-only fix: prices/durations
+    // are untouched, so the live version id (what customers' bookings are checked against) stays.
+    private void backfillSeedPictures() {
+        Map<String, String> seedPhotoByService = new HashMap<>();
+        for (CatalogDocument.ServiceItem service : loadSeedDocument().nailServices()) {
+            if (service.imageId() != null) {
+                seedPhotoByService.put(service.id(), service.imageId());
+            }
+        }
+        transactionTemplate.executeWithoutResult(status -> {
+            for (String rowStatus : List.of(CatalogVersionEntity.PUBLISHED, CatalogVersionEntity.DRAFT)) {
+                repository.findByStatusForUpdate(rowStatus).ifPresent(row -> {
+                    CatalogDocument document = parse(row);
+                    List<CatalogDocument.ServiceItem> services = new ArrayList<>();
+                    boolean changed = false;
+                    for (CatalogDocument.ServiceItem s : document.nailServices()) {
+                        String seedPhoto = seedPhotoByService.get(s.id());
+                        if (s.imageId() == null && seedPhoto != null) {
+                            s = new CatalogDocument.ServiceItem(s.id(), s.label(), s.name(), s.desc(),
+                                    s.price(), s.durationMin(), s.popular(), s.hidden(), seedPhoto);
+                            changed = true;
+                        }
+                        services.add(s);
+                    }
+                    if (changed) {
+                        row.setContent(write(new CatalogDocument(services, document.nailArt(),
+                                document.removal(), document.repairs())));
+                        repository.saveAndFlush(row);
+                        log.info("Backfilled seed photos into {} catalog row {}.", rowStatus, row.getId());
+                    }
+                });
+            }
+        });
     }
 
     private static byte[] readSeedImage(String name) {

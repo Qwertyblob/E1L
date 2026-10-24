@@ -8,7 +8,7 @@ import imgApresGelX from './assets/images/Apres_Extension.jpg';
 import logoBlack from './assets/images/E1LN_Logo/E1LN_Black_Long_Logo.png';
 import logoWhite from './assets/images/E1LN_Logo/E1LN_White_Long_Logo.png';
 import { catalogImageUrl, useCatalog } from './CatalogContext';
-import { formatServiceDuration } from './services';
+import { bundledPhotoKey, formatServiceDuration } from './services';
 
 // Service photos are uploaded by the admin and served from /api/catalog/images. If one can't load
 // (backend down and nginx has no cached copy yet), fall back to the bundled original for the seed
@@ -22,7 +22,8 @@ const BUNDLED_SEED_PHOTOS = {
 const DEFAULT_SERVICE_IMAGE = imgBackground;
 
 function bundledPhotoFor(svc) {
-  return BUNDLED_SEED_PHOTOS[svc.imageId] || DEFAULT_SERVICE_IMAGE;
+  const key = bundledPhotoKey(svc, BUNDLED_SEED_PHOTOS);
+  return key ? BUNDLED_SEED_PHOTOS[key] : DEFAULT_SERVICE_IMAGE;
 }
 
 function fallBackToBundledPhoto(svc) {

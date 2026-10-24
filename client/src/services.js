@@ -7,6 +7,14 @@ export function formatServiceDuration(durationMin) {
   return `~${durationMin} min`;
 }
 
+// Bundled-photo lookup for a service card: its own seed photo id, else "seed-<service id>" so an
+// original service whose catalog entry predates photos (no imageId) still finds its picture.
+// Returns the first of `photos`' keys that matches, or null.
+export function bundledPhotoKey(service, photos) {
+  const candidates = [service?.imageId, service?.id && `seed-${service.id}`];
+  return candidates.find((key) => key && Object.hasOwn(photos, key)) || null;
+}
+
 // "+35 mins" — the extra time an add-on adds, or null for a no-time option (e.g. "none").
 export function formatAddOnTime(durationMin) {
   return durationMin > 0 ? `+${durationMin} mins` : null;
