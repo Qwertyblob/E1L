@@ -41,8 +41,11 @@ Prerequisites: Java 21, Node 22, and a local PostgreSQL with a database named `e
 ./mvnw -B test             # run the test suite
 ```
 
-Provide at minimum `AUTH_TOKEN_SECRET` (32+ chars) via environment; see
-`every1luvs/src/main/resources/application.properties` for all settings and their defaults.
+Provide at minimum `AUTH_TOKEN_SECRET` (32+ chars). Easiest: copy
+`every1luvs/local.properties.example` to `every1luvs/local.properties` (git-ignored) and fill it in —
+`spring-boot:run` loads it automatically, using the same variable names as `.env.example` (real
+environment variables still win). See `every1luvs/src/main/resources/application.properties` for all
+settings and their defaults.
 
 **Frontend** (from `client/`):
 

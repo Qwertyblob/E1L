@@ -1,0 +1,19 @@
+# Local development settings for `./mvnw spring-boot:run` (loaded automatically; see pom.xml).
+# Copy to local.properties (git-ignored) and fill in. Keys are the same environment variable names
+# as .env.example; a real environment variable still wins over a value here.
+# Not used by tests or the Docker image.
+
+# Required: signs login tokens. Any random string of at least 32 characters.
+#   Generate one with: openssl rand -base64 36
+AUTH_TOKEN_SECRET=
+
+# Local Postgres. Defaults (application.properties): 127.0.0.1:5432/every1luvs, user "jarvis",
+# empty password. Uncomment to point elsewhere.
+#DATABASE_URL=jdbc:postgresql://127.0.0.1:5432/every1luvs
+#DB_USERNAME=jarvis
+#DB_PASSWORD=
+
+# Optional: create/promote an admin account on startup (only needed for a fresh database).
+#BOOTSTRAP_ADMIN_ENABLED=true
+#BOOTSTRAP_ADMIN_EMAIL=admin@local.test
+#BOOTSTRAP_ADMIN_PASSWORD=ChangeMe!2345
