@@ -10,8 +10,9 @@ import org.springframework.web.server.ResponseStatusException;
 public class ApiExceptionHandler {
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<ErrorResponse> handleResponseStatusException(ResponseStatusException exception) {
+        String code = exception instanceof CodedResponseStatusException coded ? coded.getCode() : null;
         return ResponseEntity
                 .status(exception.getStatusCode())
-                .body(new ErrorResponse(exception.getReason()));
+                .body(new ErrorResponse(exception.getReason(), code));
     }
 }

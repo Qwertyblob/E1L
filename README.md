@@ -41,8 +41,11 @@ Prerequisites: Java 21, Node 22, and a local PostgreSQL with a database named `e
 ./mvnw -B test             # run the test suite
 ```
 
-Provide at minimum `AUTH_TOKEN_SECRET` (32+ chars) via environment; see
-`every1luvs/src/main/resources/application.properties` for all settings and their defaults.
+Provide at minimum `AUTH_TOKEN_SECRET` (32+ chars). Easiest: copy
+`every1luvs/local.properties.example` to `every1luvs/local.properties` (git-ignored) and fill it in —
+`spring-boot:run` loads it automatically, using the same variable names as `.env.example` (real
+environment variables still win). See `every1luvs/src/main/resources/application.properties` for all
+settings and their defaults.
 
 **Frontend** (from `client/`):
 
@@ -56,10 +59,11 @@ npm run build                      # production bundle -> dist/
 
 ### Editing services and prices
 
-`client/src/services.json` is the **single source of truth** for bookable services, technician
-tiers, add-ons, prices, and durations. The frontend renders from it, and the Maven build copies it
-onto the backend classpath so the server recomputes booking totals from the same data. Edit prices
-in that one file.
+No code changes needed: sign in as an admin, open **My Profile → Services & Prices**, edit (prices,
+durations, names, descriptions, service pictures; add new items (a new service needs a picture); hide or delete items you no longer offer), **Save draft**, then
+**Review & publish**. Customers see the live catalog until you publish; existing bookings keep the
+price they were booked at. The catalog lives in the database (`tbl_catalog_versions`);
+`every1luvs/src/main/resources/catalog/seed-services.json` is only used to seed it on first boot.
 
 ## Automated customer emails
 
@@ -84,7 +88,7 @@ rebook — no separate "no-show" status is needed.
 **Destination links** (both on by default — override in the server `.env` if needed):
 
 - `REVIEW_URL` — where the review email links. **Defaults to the Instagram page**
-  (`https://instagram.com/every1luvsnails`). Override with a dedicated review page (e.g. a Google
+  (`https://instagram.com/every1luvss.co`). Override with a dedicated review page (e.g. a Google
   Business "write a review" link) when you have one.
 - `BOOKING_URL` — where the rebooking button links. **Defaults to the site's services section**
   (`https://every1luvs.com/#services`), where booking happens.

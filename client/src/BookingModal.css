@@ -466,3 +466,18 @@
   .bk-header, .bk-body, .bk-footer { padding-left: 20px; padding-right: 20px; }
   .bk-cat-toggle { grid-template-columns: 1fr; }
 }
+
+/* Mid-checkout catalog/slot change notice (see CheckoutNotice in BookingModal.jsx). */
+.bk-notice {
+  background: #fdf3e7;
+  border: 1px solid rgba(26, 24, 22, 0.16);
+  border-radius: 10px;
+  color: var(--charcoal);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+}
+.bk-notice-title { font-weight: 600; margin: 0 0 4px; }
+.bk-notice-line { margin: 0; }
+.bk-notice-paid { margin: 8px 0 0; }

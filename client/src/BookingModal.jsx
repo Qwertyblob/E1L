@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import './BookingModal.css';
+import { useCatalog } from './CatalogContext';
 import { getCalendarDays } from './slotBuilderUtils';
-import { NAIL_ART, NAIL_SERVICES, REMOVAL, REPAIRS } from './services';
+import { formatAddOnTime, formatServiceDuration } from './services';
 import { useFocusTrap } from './useFocusTrap';
 
 // Relative base so requests go through the dev-server proxy (same-origin). See App.jsx.
@@ -48,54 +49,74 @@ function CheckIcon({ className }) {
   );
 }
 
-// Sum the chosen service plus optional nail-art and removal add-ons. Missing selections
-// contribute 0. Repairs are deliberately absent: they are quoted in person, so they carry
-// no price here (and none in the server catalog either).
-function computeTotal(service, nailArt, removal) {
+// Sum the chosen service plus optional nail-art and removal add-ons, priced from `catalog` (the
+// live catalog from CatalogContext). Missing selections contribute 0. Repairs are deliberately
+// absent: they are quoted in person, so they carry no price here (and none in the server catalog).
+function computeTotal(catalog, service, nailArt, removal) {
   const basePrice = service ? service.price : 0;
-  const nailArtPrice = NAIL_ART.find((a) => a.id === nailArt)?.price || 0;
-  const removalPrice = REMOVAL.find((r) => r.id === removal)?.price || 0;
+  const nailArtPrice = catalog.NAIL_ART.find((a) => a.id === nailArt)?.price || 0;
+  const removalPrice = catalog.REMOVAL.find((r) => r.id === removal)?.price || 0;
   return basePrice + nailArtPrice + removalPrice;
 }
 
 // Repairs add no time here for the same reason they add no cost — the salon fits them in
 // and quotes them on the day.
-function computeEstimatedDuration(service, nailArt, removal) {
+function computeEstimatedDuration(catalog, service, nailArt, removal) {
   const baseDuration = service?.durationMin || 0;
-  const nailArtDuration = NAIL_ART.find((a) => a.id === nailArt)?.durationMin || 0;
-  const removalDuration = REMOVAL.find((r) => r.id === removal)?.durationMin || 0;
+  const nailArtDuration = catalog.NAIL_ART.find((a) => a.id === nailArt)?.durationMin || 0;
+  const removalDuration = catalog.REMOVAL.find((r) => r.id === removal)?.durationMin || 0;
   return baseDuration + nailArtDuration + removalDuration;
 }
 
 // Human-readable list of the chosen add-ons for the recap rows. "none" selections (the default
 // nail-art/removal options) are omitted; shows "None" when nothing extra is added. Repairs are
 // listed too — they cost/take nothing in the estimate but the salon still needs to see them.
-function formatAddOns(nailArt, removal, repairs = []) {
+function formatAddOns(catalog, nailArt, removal, repairs = []) {
   const parts = [];
   if (nailArt && nailArt !== 'none') {
-    parts.push(NAIL_ART.find((a) => a.id === nailArt)?.name || nailArt);
+    parts.push(catalog.NAIL_ART.find((a) => a.id === nailArt)?.name || nailArt);
   }
   if (removal && removal !== 'none') {
-    parts.push(REMOVAL.find((r) => r.id === removal)?.name || removal);
+    parts.push(catalog.REMOVAL.find((r) => r.id === removal)?.name || removal);
   }
   for (const id of repairs) {
-    parts.push(REPAIRS.find((r) => r.id === id)?.name || id);
+    parts.push(catalog.REPAIRS.find((r) => r.id === id)?.name || id);
   }
   return parts.length ? parts.join(', ') : 'None';
 }
 
-// Shared service/add-ons/date/time/total recap, used by the details step and the success screen.
-// `className` and `children` let each caller tweak styling and append a deposit note without
-// duplicating the rows. The total is an estimate, so it is labelled "Total estimate".
-function BookingSummary({ service, addOns, date, time, total, className = 'bk-summary', children }) {
+// Shared service/add-ons/date/time/total recap, used by the details, T&C and deposit steps and the
+// success screen. `className` and `children` let each caller tweak styling and append a deposit note
+// without duplicating the rows. The total is an estimate, so it is labelled "Total estimate".
+function BookingSummary({ service, addOns, date, time, total, duration, className = 'bk-summary', children }) {
   return (
     <div className={className}>
       <div><span>Services</span><span>{service?.name}</span></div>
       <div><span>Add-ons</span><span>{addOns}</span></div>
       <div><span>Date</span><span>{formatLongDate(date)}</span></div>
       <div><span>Time</span><span>{time}</span></div>
+      {duration != null && <div><span>Estimated duration</span><span>{duration} min</span></div>}
       <div><span>Total estimate</span><span>S${total}</span></div>
       {children}
+    </div>
+  );
+}
+
+// Shown when the published catalog changed mid-checkout (or the picked time stopped fitting): what
+// changed, and — if the customer already paid — that they must not pay again and how to recover.
+function CheckoutNotice({ notice, depositPaid, deposit }) {
+  if (!notice) return null;
+  return (
+    <div className="bk-notice" role="status">
+      <p className="bk-notice-title">{notice.title}</p>
+      {notice.lines.map((line) => <p className="bk-notice-line" key={line}>{line}</p>)}
+      {depositPaid && (
+        <p className="bk-notice-paid">
+          You've already paid your S${deposit} deposit — please do <strong>not</strong> pay again. If
+          nothing suitable is left, contact us with your payment receipt and we'll reschedule your
+          appointment or refund your deposit.
+        </p>
+      )}
     </div>
   );
 }
@@ -116,9 +137,18 @@ function Stepper({ step }) {
 }
 
 // Step 0 — Service
-function ServiceStep({ services, serviceId, selectService }) {
+function ServiceStep({ services, serviceId, selectService, catalogStatus }) {
   return (
     <>
+      {catalogStatus === 'loading' && <p className="bk-prompt">Loading services…</p>}
+      {catalogStatus === 'fallback' && (
+        // Showing the bundled backup catalog: the live prices (and the booking system) are
+        // unreachable right now, so don't let anyone book against possibly-outdated prices.
+        <p className="bk-booking-error" role="alert">
+          Online booking is temporarily unavailable. Please try again in a little while, or message us
+          on Instagram to book.
+        </p>
+      )}
       <div className="bk-service-list">
         {services.map((s) => (
           <button
@@ -133,7 +163,7 @@ function ServiceStep({ services, serviceId, selectService }) {
                 {s.popular && <span className="bk-popular">Popular</span>}
               </div>
               <p className="bk-service-desc">{s.desc}</p>
-              <span className="bk-service-duration">🕐 {s.duration}</span>
+              <span className="bk-service-duration">🕐 {formatServiceDuration(s.durationMin)}</span>
             </div>
             <div className="bk-service-price">
               <span className="bk-price">S${s.price}</span>
@@ -147,7 +177,8 @@ function ServiceStep({ services, serviceId, selectService }) {
 }
 
 // Step 1 — Add-ons
-function AddOnsStep({ nailArt, setNailArt, removal, setRemoval, repairs, toggleRepair, total }) {
+function AddOnsStep({ catalog, nailArt, setNailArt, removal, setRemoval, repairs, toggleRepair, total }) {
+  const { NAIL_ART, REMOVAL, REPAIRS } = catalog;
   return (
     <>
       <p className="bk-prompt">Customise your appointment. All add-ons are optional.</p>
@@ -156,7 +187,7 @@ function AddOnsStep({ nailArt, setNailArt, removal, setRemoval, repairs, toggleR
         {NAIL_ART.map((a) => (
           <button className={`bk-option${nailArt === a.id ? ' bk-option--selected' : ''}`} key={a.id} onClick={() => setNailArt(a.id)} type="button">
             <div className="bk-option-info">
-              <span className="bk-option-name">{a.name}{a.time && <span className="bk-option-time">{a.time}</span>}</span>
+              <span className="bk-option-name">{a.name}{formatAddOnTime(a.durationMin) && <span className="bk-option-time">{formatAddOnTime(a.durationMin)}</span>}</span>
               {a.sub && <span className="bk-option-sub">{a.sub}</span>}
             </div>
             {a.price > 0 && <span className="bk-option-price">from S${a.price}</span>}
@@ -169,7 +200,7 @@ function AddOnsStep({ nailArt, setNailArt, removal, setRemoval, repairs, toggleR
         {REMOVAL.map((r) => (
           <button className={`bk-option${removal === r.id ? ' bk-option--selected' : ''}`} key={r.id} onClick={() => setRemoval(r.id)} type="button">
             <div className="bk-option-info">
-              <span className="bk-option-name">{r.name}{r.time && <span className="bk-option-time">{r.time}</span>}</span>
+              <span className="bk-option-name">{r.name}{formatAddOnTime(r.durationMin) && <span className="bk-option-time">{formatAddOnTime(r.durationMin)}</span>}</span>
               {r.sub && <span className="bk-option-sub">{r.sub}</span>}
             </div>
             {r.price > 0 && <span className="bk-option-price">+S${r.price}</span>}
@@ -270,10 +301,15 @@ function DateTimeStep({
   );
 }
 
-// Step 4 — T&C (final step; confirms the booking)
-function TermsStep({ agreed, setAgreed, bookingError }) {
+// Step 4 — T&C. Accepting here approves BOTH the terms and the quote recapped above it: the
+// catalog version that recap was priced from is what the booking is submitted against.
+function TermsStep({ agreed, setAgreed, bookingError, service, addOns, date, time, total, duration, deposit }) {
   return (
     <>
+      <BookingSummary service={service} addOns={addOns} date={date} time={time} total={total} duration={duration} />
+      <div className="bk-summary-deposit">
+        <span>Deposit due</span><span>S${deposit}</span>
+      </div>
       <p className="bk-prompt">Please read and accept our Terms &amp; Conditions to complete your booking.</p>
       <div className="bk-terms">
         <p className="bk-terms-title">Terms &amp; Conditions</p>
@@ -293,7 +329,7 @@ function TermsStep({ agreed, setAgreed, bookingError }) {
 // Step 5 — Deposit (final step; recap + fixed-S$30 PayNow QR, gated on a "paid" confirmation)
 function DepositStep({
   service, addOns, date, time, total, deposit, depositPaid, setDepositPaid,
-  qrError, onQrLoad, onQrError, bookingError,
+  qrError, onQrLoad, onQrError, bookingError, paidBeforeRecovery,
 }) {
   return (
     <>
@@ -301,6 +337,13 @@ function DepositStep({
       <div className="bk-summary-deposit">
         <span>Deposit due</span><span>S${deposit}</span>
       </div>
+      {paidBeforeRecovery && depositPaid && (
+        // Back here after re-reviewing an updated quote: the deposit is a flat S$30 regardless of
+        // prices, so the payment they already made still stands.
+        <p className="bk-recovery-note" role="note">
+          You've already paid your S${deposit} deposit — please do <strong>not</strong> pay again.
+        </p>
+      )}
       <div className="bk-paynow">
         {qrError ? (
           // The QR is the only payment method shown; if it fails to load, surface an error and
@@ -492,9 +535,11 @@ function SuccessView({ formEmail, service, addOns, date, time, total, deposit, o
 }
 
 export default function BookingModal({ onClose, onConfirm, currentUser }) {
+  const { catalog, version, status: catalogStatus, refresh: refreshCatalog } = useCatalog();
   const now = new Date();
   const [step, setStep] = useState(0);
   const [done, setDone] = useState(false);
+  const [confirmed, setConfirmed] = useState(null);
 
   const [serviceId, setServiceId] = useState(null);
   const [nailArt, setNailArt] = useState('none');
@@ -527,6 +572,24 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   const [bookingError, setBookingError] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [attachmentError, setAttachmentError] = useState('');
+  // The catalog version of the quote the customer explicitly accepted on the T&C step (with the
+  // recap in front of them). The booking is submitted against THIS version — never whatever the
+  // context holds at submit time — so a background refresh can't silently re-price an approved
+  // quote. null = no current approval (Confirm is blocked).
+  const [reviewedCatalogVersion, setReviewedCatalogVersion] = useState(null);
+  const [accepting, setAccepting] = useState(false);
+  // { title, lines[] } shown above the current step after a mid-checkout catalog/slot change.
+  const [notice, setNotice] = useState(null);
+  // True once a recovery happened after the customer ticked "I have paid", so the deposit step
+  // reminds them not to pay twice.
+  const [paidBeforeRecovery, setPaidBeforeRecovery] = useState(false);
+  // Bumped to force an availability re-fetch for an unchanged quote (e.g. after SLOT_UNAVAILABLE).
+  const [availabilityNonce, setAvailabilityNonce] = useState(0);
+  // The catalog version/content the customer's current quote was built against, and the version a
+  // deposit claim was last reported for (one report per catalog change, however it is detected).
+  const quoteVersionRef = useRef(null);
+  const quoteCatalogRef = useRef(null);
+  const reportedRecoveryVersionRef = useRef(null);
 
   // Accept image files from the picker or a paste, validating count/size against the same caps
   // the server enforces. Non-images and oversized files are skipped with an inline message.
@@ -573,16 +636,29 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   }, []);
 
   // Availability is quote-aware: the server checks whether the chosen service's duration still
-  // fits each slot under the scheduling invariant. Re-fetch whenever the quote changes. An
+  // fits each slot under the scheduling invariant. Re-fetch whenever the quote changes — including
+  // a new catalog version, since a republish can change durations for the same selection. An
   // AbortController cancels the in-flight request and a monotonic sequence guards against a slow
   // earlier-quote response landing after a newer one, so stale data can never overwrite current.
   const availabilitySeq = useRef(0);
+  // Fresh availability for the current quote. If the customer is already past the time step and
+  // their picked time is no longer offered (e.g. a republish lengthened the appointment, or the slot
+  // filled), send them back to choose another rather than letting them confirm a time that can't fit.
+  const onAvailabilityLoaded = useEffectEvent((slots) => {
+    if (done || step <= 2 || !date || !time) return;
+    const stillOffered = slots.some((slot) => slot?.available !== false
+      && String(slot.startTime).slice(0, 10) === date
+      && String(slot.startTime).slice(11, 16) === time);
+    if (!stillOffered) {
+      routeToTimeStep('Your chosen time no longer fits your updated appointment. Please pick another time.');
+    }
+  });
   useEffect(() => {
     // No service chosen yet — nothing to check; availableSlots stays at its initial []. (serviceId
     // only ever goes null -> a real id, so there's no stale list to clear.)
-    if (!serviceId) return undefined;
+    if (done || !serviceId) return undefined;
     const seq = (availabilitySeq.current += 1);
-    const quoteKey = `${serviceId}|${nailArt}|${removal}`;
+    const quoteKey = `${version}|${serviceId}|${nailArt}|${removal}`;
     const controller = new AbortController();
     const params = new URLSearchParams({ serviceId });
     if (nailArt) params.set('nailArtId', nailArt);
@@ -590,24 +666,26 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     fetch(`${API_BASE_URL}/api/slots/available?${params.toString()}`, { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
-        if (seq !== availabilitySeq.current) return;
-        setAvailableSlots(Array.isArray(data) ? data : []);
+        if (controller.signal.aborted || seq !== availabilitySeq.current) return;
+        const slots = Array.isArray(data) ? data : [];
+        setAvailableSlots(slots);
         setLoadedQuoteKey(quoteKey);
+        onAvailabilityLoaded(slots);
       })
       .catch((err) => {
-        if (err.name === 'AbortError' || seq !== availabilitySeq.current) return;
+        if (controller.signal.aborted || err.name === 'AbortError' || seq !== availabilitySeq.current) return;
         setAvailableSlots([]);
         setLoadedQuoteKey(quoteKey);
       });
     return () => controller.abort();
-  }, [serviceId, nailArt, removal]);
+  }, [done, serviceId, nailArt, removal, version, availabilityNonce]);
 
   const service = useMemo(
-    () => NAIL_SERVICES.find((s) => s.id === serviceId) || null,
-    [serviceId],
+    () => catalog.NAIL_SERVICES.find((s) => s.id === serviceId) || null,
+    [catalog, serviceId],
   );
   // Total time the chosen service + add-ons need; shown to the customer on the times step.
-  const estimatedDuration = computeEstimatedDuration(service, nailArt, removal);
+  const estimatedDuration = computeEstimatedDuration(catalog, service, nailArt, removal);
 
   // Map of available dates -> sorted unique start times (read from the stored
   // wall-clock; slots are persisted as UTC so the ISO date/time substrings are
@@ -632,15 +710,13 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
 
   const availableTimes = date ? (availabilityByDate[date] || []) : [];
 
-  const services = NAIL_SERVICES;
-
-  const total = computeTotal(service, nailArt, removal);
-  const addOnsLabel = formatAddOns(nailArt, removal, repairs);
+  const total = computeTotal(catalog, service, nailArt, removal);
+  const addOnsLabel = formatAddOns(catalog, nailArt, removal, repairs);
   const deposit = 30;
 
-  const currentQuoteKey = serviceId ? `${serviceId}|${nailArt}|${removal}` : null;
+  const currentQuoteKey = serviceId ? `${version}|${serviceId}|${nailArt}|${removal}` : null;
   const canContinue = (() => {
-    if (step === 0) return !!service;
+    if (step === 0) return !!service && catalogStatus === 'ready';
     // Gate on availability having loaded for the CURRENT quote, and on the picked time still being
     // offered for it — so a stale selection from a previous service/add-on can't be carried forward.
     if (step === 2) {
@@ -649,10 +725,128 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
         && availableTimes.includes(time);
     }
     if (step === 3) return form.fullName.trim() && form.email.trim();
-    if (step === 4) return agreed;
-    if (step === 5) return depositPaid && qrLoaded && !qrError;
+    if (step === 4) return agreed && !accepting;
+    // Confirm also needs a current approval: any catalog change clears it until re-accepted.
+    if (step === 5) return depositPaid && qrLoaded && !qrError && reviewedCatalogVersion != null;
     return true;
   })();
+
+  function routeToTimeStep(message) {
+    setStep(2);
+    setTime(null);
+    setAgreed(false);
+    setReviewedCatalogVersion(null);
+    setNotice({ title: 'Please pick another time.', lines: [message] });
+  }
+
+  /**
+   * The single recovery path for a catalog change after the customer has a quote — whether noticed
+   * by a background refresh, by the acceptance-time refresh, or by the server rejecting the booking
+   * (CATALOG_VERSION_MISMATCH). Invalidates any approval, drops selections that are no longer
+   * offered, routes to the earliest affected step and explains what changed. The deposit is a flat
+   * S$30 and stays marked paid; if it was, the salon is alerted once per catalog version so a
+   * customer who can't (or doesn't) finish is never left paid with no booking and nobody aware.
+   */
+  function recoverFromCatalogChange(freshCatalog, freshVersion, { force = false } = {}) {
+    const alreadyAtVersion = freshVersion === quoteVersionRef.current;
+    if (alreadyAtVersion && !force) return;
+    const oldCatalog = quoteCatalogRef.current || freshCatalog;
+    const nameIn = (list, id) => list.find((x) => x.id === id)?.name || id;
+    const oldService = oldCatalog.NAIL_SERVICES.find((s) => s.id === serviceId) || null;
+    const oldTotal = computeTotal(oldCatalog, oldService, nailArt, removal);
+
+    const removed = [];
+    const nextService = serviceId ? freshCatalog.NAIL_SERVICES.find((s) => s.id === serviceId) || null : null;
+    const serviceGone = Boolean(serviceId) && !nextService;
+    if (serviceGone) removed.push(nameIn(oldCatalog.NAIL_SERVICES, serviceId));
+    let nextNailArt = nailArt;
+    if (nailArt !== 'none' && !freshCatalog.NAIL_ART.some((a) => a.id === nailArt)) {
+      removed.push(nameIn(oldCatalog.NAIL_ART, nailArt));
+      nextNailArt = 'none';
+    }
+    let nextRemoval = removal;
+    if (removal !== 'none' && !freshCatalog.REMOVAL.some((r) => r.id === removal)) {
+      removed.push(nameIn(oldCatalog.REMOVAL, removal));
+      nextRemoval = 'none';
+    }
+    const keptRepairs = repairs.filter((id) => freshCatalog.REPAIRS.some((r) => r.id === id));
+    repairs.filter((id) => !keptRepairs.includes(id))
+      .forEach((id) => removed.push(nameIn(oldCatalog.REPAIRS, id)));
+
+    if (serviceGone) setServiceId(null);
+    if (nextNailArt !== nailArt) setNailArt(nextNailArt);
+    if (nextRemoval !== removal) setRemoval(nextRemoval);
+    if (keptRepairs.length !== repairs.length) setRepairs(keptRepairs);
+    setAgreed(false);
+    setReviewedCatalogVersion(null);
+
+    // Earliest affected step: service → add-ons → (the T&C recap, for an already-reviewed quote).
+    // The time step is re-checked separately once availability reloads for the new version.
+    let target = step;
+    if (serviceGone) target = 0;
+    else if (removed.length) target = Math.min(step, 1);
+    else if (step > 4) target = 4;
+    if (target !== step) setStep(target);
+
+    const newTotal = serviceGone ? null : computeTotal(freshCatalog, nextService, nextNailArt, nextRemoval);
+    const lines = [];
+    if (removed.length) lines.push(`No longer offered, so removed from your booking: ${removed.join(', ')}.`);
+    if (serviceGone) lines.push('Please choose another service.');
+    if (newTotal != null && serviceId && newTotal !== oldTotal) {
+      lines.push(`Your estimated total changed from S$${oldTotal} to S$${newTotal}.`);
+    }
+    if (step >= 4 && !serviceGone) lines.push('Please review your booking and accept again.');
+    if (lines.length) {
+      const next = { title: 'Our prices were just updated.', lines };
+      // A forced re-run for a version already handled keeps the more specific earlier notice.
+      setNotice((prev) => (alreadyAtVersion && prev ? prev : next));
+    }
+
+    if (depositPaid) {
+      setPaidBeforeRecovery(true);
+      if (reportedRecoveryVersionRef.current !== freshVersion) {
+        reportedRecoveryVersionRef.current = freshVersion;
+        reportDepositClaim('Prices updated during checkout — customer re-reviewing.'
+          + (removed.length ? ` No longer offered: ${removed.join(', ')}.` : ''));
+      }
+    }
+    quoteVersionRef.current = freshVersion;
+    quoteCatalogRef.current = freshCatalog;
+  }
+
+  // Track the catalog the current quote is built on; a new version (focus/visibility refresh,
+  // acceptance refresh) runs the recovery above. The first ready catalog just becomes the baseline.
+  const onCatalogVersion = useEffectEvent((nextCatalog, nextVersion) => {
+    if (done || nextVersion == null) return;
+    if (quoteVersionRef.current == null) {
+      quoteVersionRef.current = nextVersion;
+      quoteCatalogRef.current = nextCatalog;
+      return;
+    }
+    recoverFromCatalogChange(nextCatalog, nextVersion);
+  });
+  useEffect(() => {
+    onCatalogVersion(catalog, version);
+  }, [catalog, version]);
+
+  // Continue on the T&C step = explicit approval of the recapped quote. Re-check the live catalog
+  // first: if it moved since the recap was rendered, this click is NOT an approval of the new
+  // prices — show the updated quote and require another explicit acceptance. If the check itself
+  // fails, accept what was shown; the server still rejects a stale version on submit.
+  async function acceptTerms() {
+    if (!canContinue) return;
+    const shownVersion = version;
+    setAccepting(true);
+    const fresh = await refreshCatalog();
+    setAccepting(false);
+    if (fresh && fresh.version !== shownVersion) {
+      recoverFromCatalogChange(fresh.catalog, fresh.version);
+      return;
+    }
+    setReviewedCatalogVersion(shownVersion);
+    setNotice(null);
+    next();
+  }
 
   function next() { setStep((s) => Math.min(s + 1, STEP_LABELS.length - 1)); }
   function back() { setStep((s) => Math.max(s - 1, 0)); }
@@ -733,18 +927,37 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
         nailArtId: nailArt,
         removalId: removal,
         repairIds: repairs,
+        // The version the customer accepted; the server 409s (CATALOG_VERSION_MISMATCH) if the
+        // live catalog has moved on, instead of booking a price they never saw.
+        catalogVersion: reviewedCatalogVersion,
         date,
         time,
         // Strip the preview data-URL + size; the API only needs filename/contentType/base64 data.
         attachments: attachments.map((a) => ({ filename: a.filename, contentType: a.contentType, data: a.data })),
       });
+      // Keep the accepted booking details even if the live catalog changes after confirmation.
+      setConfirmed({ service, addOns: addOnsLabel, date, time, total });
       setDone(true);
     } catch (err) {
+      if (err?.code === 'CATALOG_VERSION_MISMATCH') {
+        // Prices changed after the customer accepted. Re-show the updated quote for re-acceptance
+        // via the shared recovery (which also alerts the salon once if the deposit was paid).
+        const fresh = await refreshCatalog();
+        recoverFromCatalogChange(fresh?.catalog ?? catalog, fresh?.version ?? version, { force: true });
+        return;
+      }
       const message = err?.message || 'Could not complete your booking. Please try again.';
-      setBookingError(message);
       // The customer marked the deposit paid but the booking didn't go through. Alert the salon
       // (best-effort) so they can reconcile the PayNow receipt and reschedule/refund.
       if (depositPaid) reportDepositClaim(message);
+      if (err?.code === 'SLOT_UNAVAILABLE') {
+        // The time filled up meanwhile: back to time selection with fresh availability.
+        if (depositPaid) setPaidBeforeRecovery(true);
+        setAvailabilityNonce((n) => n + 1);
+        routeToTimeStep(message);
+        return;
+      }
+      setBookingError(message);
     } finally {
       setSubmitting(false);
     }
@@ -756,11 +969,11 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
         {done ? (
           <SuccessView
             formEmail={form.email}
-            service={service}
-            addOns={addOnsLabel}
-            date={date}
-            time={time}
-            total={total}
+            service={confirmed.service}
+            addOns={confirmed.addOns}
+            date={confirmed.date}
+            time={confirmed.time}
+            total={confirmed.total}
             deposit={deposit}
             onClose={onClose}
           />
@@ -774,13 +987,16 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
             <Stepper step={step} />
 
             <div className="bk-body">
+              <CheckoutNotice notice={notice} depositPaid={depositPaid} deposit={deposit} />
               {[
                 <ServiceStep
-                  services={services}
+                  services={catalog.NAIL_SERVICES}
                   serviceId={serviceId}
                   selectService={selectService}
+                  catalogStatus={catalogStatus}
                 />,
                 <AddOnsStep
+                  catalog={catalog}
                   nailArt={nailArt}
                   setNailArt={setNailArt}
                   removal={removal}
@@ -816,7 +1032,18 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
                   removeAttachment={removeAttachment}
                   attachmentError={attachmentError}
                 />,
-                <TermsStep agreed={agreed} setAgreed={setAgreed} bookingError={bookingError} />,
+                <TermsStep
+                  agreed={agreed}
+                  setAgreed={setAgreed}
+                  bookingError={bookingError}
+                  service={service}
+                  addOns={addOnsLabel}
+                  date={date}
+                  time={time}
+                  total={total}
+                  duration={estimatedDuration}
+                  deposit={deposit}
+                />,
                 <DepositStep
                   service={service}
                   addOns={addOnsLabel}
@@ -830,6 +1057,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
                   onQrLoad={() => setQrLoaded(true)}
                   onQrError={() => setQrError(true)}
                   bookingError={bookingError}
+                  paidBeforeRecovery={paidBeforeRecovery}
                 />,
               ][step]}
             </div>
@@ -837,7 +1065,9 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
             <footer className="bk-footer">
               {step > 0 && <button className="bk-btn bk-btn--ghost" onClick={back} type="button" disabled={submitting}>Back</button>}
               {step < 5 ? (
-                <button className={`bk-btn bk-btn--primary${step === 0 ? ' bk-btn--full' : ''}`} disabled={!canContinue} onClick={next} type="button">Continue</button>
+                <button className={`bk-btn bk-btn--primary${step === 0 ? ' bk-btn--full' : ''}`} disabled={!canContinue} onClick={step === 4 ? acceptTerms : next} type="button">
+                  {step === 4 && accepting ? 'Checking prices…' : 'Continue'}
+                </button>
               ) : (
                 <button className="bk-btn bk-btn--primary" disabled={!canContinue || submitting} onClick={confirmBooking} type="button">
                   {submitting ? 'Booking…' : 'Confirm Booking'}

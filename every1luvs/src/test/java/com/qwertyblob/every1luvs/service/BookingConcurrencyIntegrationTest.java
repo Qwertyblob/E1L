@@ -68,6 +68,7 @@ class BookingConcurrencyIntegrationTest {
     private static final int CAP = 5;
 
     @Autowired private BookingService bookingService;
+    @Autowired private CatalogService catalogService;
     @Autowired private SlotService slotService;
     @Autowired private UserService userService;
     @Autowired private UserRepository userRepository;
@@ -442,6 +443,6 @@ class BookingConcurrencyIntegrationTest {
     private CreateBookingRequest bookingRequest(Long slotId) {
         return new CreateBookingRequest(
                 slotId, null, null, null, null, null, null, null, null, null, null,
-                "classic", null, "none", "none");
+                "classic", null, "none", "none").withCatalogVersion(catalogService.current().versionId());
     }
 }

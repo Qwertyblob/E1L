@@ -1,40 +1,32 @@
-import { NAIL_SERVICES, NAIL_ART, REMOVAL } from './services';
+import { bundledPhotoKey, formatAddOnTime, formatServiceDuration } from './services';
 
-describe('services catalog data integrity', () => {
-  test('every nail service has a unique id', () => {
-    const ids = NAIL_SERVICES.map((s) => s.id);
-    expect(new Set(ids).size).toBe(ids.length);
+describe('catalog duration labels', () => {
+  test('a service duration reads as an approximate length', () => {
+    expect(formatServiceDuration(45)).toBe('~45 min');
   });
 
-  test('every nail service has required pricing/duration fields', () => {
-    for (const service of NAIL_SERVICES) {
-      expect(service.id).toBeTruthy();
-      expect(service.name).toBeTruthy();
-      expect(typeof service.durationMin).toBe('number');
-      expect(service.durationMin).toBeGreaterThan(0);
-      expect(typeof service.price).toBe('number');
-      expect(service.price).toBeGreaterThan(0);
-    }
+  test('an add-on shows the extra time it adds', () => {
+    expect(formatAddOnTime(35)).toBe('+35 mins');
   });
 
-  test('nail art tiers are non-negative and start with a free "none" option', () => {
-    expect(NAIL_ART[0]).toMatchObject({ id: 'none', price: 0 });
-    for (const art of NAIL_ART) {
-      expect(art.price).toBeGreaterThanOrEqual(0);
-    }
+  test('a no-time add-on (e.g. "none") has no time label', () => {
+    expect(formatAddOnTime(0)).toBeNull();
+  });
+});
+
+describe('bundled service photo lookup', () => {
+  const photos = { 'seed-classic': 'classic.jpg', 'seed-express': 'express.jpg' };
+
+  test('uses the service\'s own seed photo id', () => {
+    expect(bundledPhotoKey({ id: 'classic', imageId: 'seed-classic' }, photos)).toBe('seed-classic');
   });
 
-  test('removal options are non-negative and start with a free "none" option', () => {
-    expect(REMOVAL[0]).toMatchObject({ id: 'none', price: 0 });
-    for (const removal of REMOVAL) {
-      expect(removal.price).toBeGreaterThanOrEqual(0);
-    }
+  test('an original service without an imageId still finds its photo by service id', () => {
+    expect(bundledPhotoKey({ id: 'express' }, photos)).toBe('seed-express');
+    expect(bundledPhotoKey({ id: 'express', imageId: '0f3a9c' }, photos)).toBe('seed-express');
   });
 
-  test('nail art and removal ids are unique', () => {
-    const artIds = NAIL_ART.map((a) => a.id);
-    const removalIds = REMOVAL.map((r) => r.id);
-    expect(new Set(artIds).size).toBe(artIds.length);
-    expect(new Set(removalIds).size).toBe(removalIds.length);
+  test('a service with no bundled photo gets none (the page uses the generic background)', () => {
+    expect(bundledPhotoKey({ id: 'gel-pedicure', imageId: '0f3a9c' }, photos)).toBeNull();
   });
 });

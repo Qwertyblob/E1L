@@ -95,6 +95,9 @@ public class SecurityConfig {
                         // so this is only reachable from inside the compose networks.
                         .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/slots/available").permitAll()
+                        // The live service catalog (names, prices, durations) the public site renders.
+                        .requestMatchers(HttpMethod.GET, "/api/catalog").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/catalog/images/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/bookings").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/deposit-claims").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

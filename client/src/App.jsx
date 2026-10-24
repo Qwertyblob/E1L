@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 import BookingModal from './BookingModal';
+import { CatalogProvider } from './CatalogContext';
 import LandingView from './LandingView';
 import ProfileView from './ProfileView';
 import AuthModal from './AuthModal';
@@ -106,11 +107,14 @@ function buildRequestHeaders(options) {
 // so callers can tell an auth rejection (401/403 — cookie gone/invalid) apart from a
 // transient failure (5xx, or a fetch that never yields a response). refreshProfile
 // relies on this to avoid signing a user out over a network blip.
+// `code` is the server's optional machine-readable reason (e.g. CATALOG_VERSION_MISMATCH), so
+// callers can branch on it instead of on message text.
 class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, code = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -127,6 +131,7 @@ async function parseApiResponse(response) {
     throw new ApiError(
       data?.message || data?.detail || `Request failed with status ${response.status}.`,
       response.status,
+      data?.code ?? null,
     );
   }
 
@@ -139,7 +144,9 @@ function blankToNull(value) {
   return value || null;
 }
 
-function buildBookingPayload({ slotId, form, serviceId, nailArtId, removalId, repairIds, attachments }) {
+function buildBookingPayload({
+  slotId, form, serviceId, nailArtId, removalId, repairIds, attachments, catalogVersion,
+}) {
   const f = form || {};
   return {
     slotId,
@@ -156,13 +163,16 @@ function buildBookingPayload({ slotId, form, serviceId, nailArtId, removalId, re
     // Multi-select repairs; omitted (null) when none were picked. They add no price or time —
     // the server records the names only.
     repairIds: repairIds && repairIds.length ? repairIds : null,
+    // The published catalog version of the quote the customer accepted (GET /api/catalog
+    // "version"); the server refuses the booking if prices have changed since.
+    catalogVersion: catalogVersion ?? null,
     // Optional inspo images ({ filename, contentType, data }). The server forwards these to the
     // salon inbox as email attachments and never stores them. Omit the key when there are none.
     attachments: attachments && attachments.length ? attachments : null,
   };
 }
 
-function App() {
+function AppShell() {
   const [mode, setMode] = useState('login');
   const [showAuth, setShowAuth] = useState(false);
   const [activeView, setActiveView] = useState('landing');
@@ -1019,6 +1029,8 @@ function App() {
         archivedSlotsPage={archivedSlotsPage}
         archivedSlotsTotal={archivedSlotsTotal}
         handleDeleteSlot={requestDeleteSlot}
+        apiRequest={apiRequest}
+        requestAdminConfirm={setAdminConfirm}
       />
     );
   }
@@ -1061,6 +1073,16 @@ function App() {
       onNextSlide={nextSlide}
       onSelectSlide={setGalleryIndex}
     />
+  );
+}
+
+// The live service catalog (admin-editable prices) is shared by the landing page, the booking
+// modal and the admin editor, so it is provided above every view App can render.
+function App() {
+  return (
+    <CatalogProvider>
+      <AppShell />
+    </CatalogProvider>
   );
 }
 

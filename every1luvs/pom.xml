@@ -128,37 +128,16 @@
 
 	<build>
 		<plugins>
-			<!-- Copy the shared catalog (canonical source: client/src/services.json) onto the
-			     backend classpath so BookingCatalog reads the exact same prices/options the
-			     client uses. Edit services.json once; this bundles it into the jar at build. -->
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-resources-plugin</artifactId>
-				<executions>
-					<execution>
-						<id>copy-shared-catalog</id>
-						<phase>generate-resources</phase>
-						<goals>
-							<goal>copy-resources</goal>
-						</goals>
-						<configuration>
-							<outputDirectory>${project.build.outputDirectory}/catalog</outputDirectory>
-							<resources>
-								<resource>
-									<directory>${project.basedir}/../client/src</directory>
-									<includes>
-										<include>services.json</include>
-									</includes>
-								</resource>
-							</resources>
-						</configuration>
-					</execution>
-				</executions>
-			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 				<configuration>
+					<!-- `./mvnw spring-boot:run` also reads the git-ignored local.properties (dev secrets
+					     like AUTH_TOKEN_SECRET; template: local.properties.example). Optional, so it's fine
+					     if absent. Only the run goal sees this: tests and the packaged jar never do. -->
+					<systemPropertyVariables>
+						<spring.config.import>optional:file:${project.basedir}/local.properties</spring.config.import>
+					</systemPropertyVariables>
 					<excludes>
 						<exclude>
 							<groupId>org.projectlombok</groupId>

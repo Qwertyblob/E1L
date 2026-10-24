@@ -76,7 +76,7 @@ jobs:
       - name: Build & push app image
         uses: docker/build-push-action@v6
         with:
-          context: .                       # repo root (Maven build needs client/src/services.json)
+          context: .                       # repo root (the Dockerfile COPYs repo-relative paths)
           file: every1luvs/Dockerfile
           push: ${{ env.DRY_RUN != 'true' }}   # dry run builds to validate but never publishes
           tags: |
