@@ -398,8 +398,11 @@ public class CatalogService {
     }
 
     private CatalogVersionEntity lockPublished() {
+        // A publish can supersede the row while this SELECT waits on its lock. PostgreSQL then
+        // rechecks the status predicate and returns no row: the caller's live base is now stale.
         return repository.findByStatusForUpdate(CatalogVersionEntity.PUBLISHED)
-                .orElseThrow(() -> new IllegalStateException("No PUBLISHED catalog row."));
+                .orElseThrow(() -> conflict("The live catalog was updated since you started editing. "
+                        + "Load the latest version, then re-apply your changes."));
     }
 
     // The draft the admin reviewed, locked, or 409 if it has since been published/discarded/edited.

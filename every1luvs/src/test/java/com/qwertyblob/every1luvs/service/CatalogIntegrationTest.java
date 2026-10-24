@@ -23,6 +23,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -38,6 +39,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -177,6 +179,53 @@ class CatalogIntegrationTest {
 
         assertThat(catalogRepository.findByStatus(CatalogVersionEntity.DRAFT)).isEmpty();
         assertThat(classicPrice(catalogService.current().document())).isEqualTo(70);
+    }
+
+    @Test
+    void creatingDraftWhilePublicationCommits_is409AndCreatesNoDraft() throws Exception {
+        long original = liveId();
+        var draft = createDraft(ADMIN_A, withClassicPrice(70));
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        var waitingSave = new AtomicReference<Future<Integer>>();
+        try {
+            // publish joins this transaction: both status changes are flushed, but the old live
+            // row remains locked until the callback returns and the outer transaction commits.
+            new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
+                catalogService.publish(new CatalogDraftActionRequest(draft.id(), draft.version()), ADMIN_A);
+                waitingSave.set(pool.submit(() -> statusOf(() -> catalogService.saveDraft(
+                        new SaveCatalogDraftRequest(null, null, original, seed()), ADMIN_B))));
+
+                // Observe the wait itself instead of guessing how long the other thread needs.
+                // Once released, PostgreSQL rechecks the old row's status and returns no row.
+                boolean observedLockWait = false;
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+                while (System.nanoTime() < deadline) {
+                    jdbcTemplate.execute("select pg_stat_clear_snapshot()");
+                    Integer waiting = jdbcTemplate.queryForObject("""
+                            select count(*) from pg_stat_activity
+                            where pid <> pg_backend_pid() and datname = current_database()
+                              and wait_event_type = 'Lock' and query ilike '%tbl_catalog_versions%'
+                            """, Integer.class);
+                    if (waiting != null && waiting > 0) {
+                        observedLockWait = true;
+                        break;
+                    }
+                    try {
+                        Thread.sleep(25);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("Interrupted waiting for the draft-creation lock", e);
+                    }
+                }
+                assertThat(observedLockWait).as("draft creation waited on the published row").isTrue();
+            });
+
+            assertThat(waitingSave.get().get(10, TimeUnit.SECONDS)).isEqualTo(409);
+            assertThat(catalogRepository.findByStatus(CatalogVersionEntity.DRAFT)).isEmpty();
+            assertThat(liveId()).isEqualTo(draft.id());
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test
