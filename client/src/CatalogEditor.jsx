@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { catalogImageUrl, useCatalog } from './CatalogContext';
 import { LIMITS, NONE_ID, PHOTO_TYPES, SECTIONS } from './catalogEditorUtils';
 import { useCatalogEditor } from './useCatalogEditor';
@@ -195,6 +196,25 @@ export default function CatalogEditor({ apiRequest, requestConfirm }) {
     status, view, working, issues, dirty, hasDraft, busy, message, conflict, liveIds,
   } = editor;
 
+  // After "+ Add …", bring the new card into view and put the cursor in its Name field, so the
+  // click visibly does something even when the card lands below the fold.
+  const pendingFocusRef = useRef(null);
+  useEffect(() => {
+    const pending = pendingFocusRef.current;
+    if (!pending) return;
+    const input = document.getElementById(`catalog-${pending.section}-${pending.index}-name`);
+    if (!input) return;
+    pendingFocusRef.current = null;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    input.closest('.catalog-item')?.scrollIntoView?.({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+    input.focus({ preventScroll: true });
+  }, [working]);
+
+  function addItem(sectionKey) {
+    pendingFocusRef.current = { section: sectionKey, index: (working?.[sectionKey] || []).length };
+    editor.addItem(sectionKey);
+  }
+
   if (status === 'loading') {
     return <article className="panel panel--wide"><p>Loading services and prices…</p></article>;
   }
@@ -294,7 +314,7 @@ export default function CatalogEditor({ apiRequest, requestConfirm }) {
             <section className="catalog-section" key={section.key}>
               <div className="catalog-section-head">
                 <h4>{section.label}</h4>
-                <button className="text-button" onClick={() => editor.addItem(section.key)} type="button">
+                <button className="text-button" onClick={() => addItem(section.key)} type="button">
                   + Add {section.singular}
                 </button>
               </div>

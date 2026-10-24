@@ -2147,6 +2147,8 @@ input:focus {
   padding: 14px 16px;
 }
 .catalog-item--hidden { background: var(--paper); }
+/* The card being edited (e.g. one just added via "+ Add …") stands out. */
+.catalog-item:focus-within { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(8, 127, 131, 0.15); }
 .catalog-item--fixed { gap: 4px; }
 .catalog-item-head { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
 .catalog-item-title { font-weight: 800; overflow-wrap: anywhere; }

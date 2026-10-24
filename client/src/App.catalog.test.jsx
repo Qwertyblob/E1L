@@ -142,6 +142,25 @@ describe('Admin catalog editor — drafts', () => {
     expect(content.NAIL_SERVICES).toHaveLength(LIVE.NAIL_SERVICES.length + 1);
   });
 
+  test('adding an item scrolls to the new card and focuses its name field', async () => {
+    setupFetch([{ method: 'GET', path: '/api/admin/catalog', body: liveView() }]);
+    const scrollIntoView = jest.fn();
+    window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    await gotoServicesTab();
+
+    await userEvent.click(screen.getByRole('button', { name: '+ Add service' }));
+
+    const nameInput = field('NAIL_SERVICES', LIVE.NAIL_SERVICES.length, 'name');
+    await waitFor(() => expect(nameInput).toHaveFocus());
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView.mock.instances[0]).toBe(nameInput.closest('li'));
+
+    // Works for the add-on sections too.
+    await userEvent.click(screen.getByRole('button', { name: '+ Add removal option' }));
+    await waitFor(() => expect(field('REMOVAL', LIVE.REMOVAL.length, 'name')).toHaveFocus());
+    delete window.HTMLElement.prototype.scrollIntoView;
+  });
+
   test('a new service needs a picture before it can be saved', async () => {
     setupFetch([{ method: 'GET', path: '/api/admin/catalog', body: liveView() }]);
     await gotoServicesTab();
