@@ -166,6 +166,40 @@ describe('Admin catalog editor — drafts', () => {
   });
 });
 
+describe('Admin catalog editor — delete', () => {
+  test('deleting a live service asks first, then drops it from the saved draft', async () => {
+    setupFetch([
+      { method: 'GET', path: '/api/admin/catalog', body: liveView() },
+      { method: 'PUT', path: '/api/admin/catalog/draft', body: draftView(LIVE, 0) },
+    ]);
+    await gotoServicesTab();
+
+    const express = screen.getByText('Express Manicure', { selector: '.catalog-item-title' }).closest('li');
+    await userEvent.click(within(express).getByRole('button', { name: 'Delete' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Delete Express Manicure?' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(screen.queryByText('Express Manicure', { selector: '.catalog-item-title' })).not.toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(callsTo('PUT', '/api/admin/catalog/draft')).toHaveLength(1));
+    const { content } = bodyOf(callsTo('PUT', '/api/admin/catalog/draft')[0]);
+    expect(content.NAIL_SERVICES.map((s) => s.id)).not.toContain('express');
+  });
+
+  test('a never-published item is removed straight away', async () => {
+    setupFetch([{ method: 'GET', path: '/api/admin/catalog', body: liveView() }]);
+    await gotoServicesTab();
+
+    await userEvent.click(screen.getByRole('button', { name: '+ Add service' }));
+    expect(screen.getByText('New service', { selector: '.catalog-item-title' })).toBeInTheDocument();
+    const added = screen.getByText('New service', { selector: '.catalog-item-title' }).closest('li');
+    await userEvent.click(within(added).getByRole('button', { name: 'Delete' }));
+
+    expect(screen.queryByText('New service', { selector: '.catalog-item-title' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
 describe('Admin catalog editor — publish', () => {
   test('review shows the changes vs live, then publishes exactly the reviewed draft revision', async () => {
     setupFetch([
@@ -217,12 +251,14 @@ describe('diffCatalog', () => {
     draft.NAIL_SERVICES[0].hidden = true;
     draft.NAIL_ART.push({ id: 'tier4', name: 'Tier 4 — Bespoke', sub: null, price: 70, durationMin: 90, hidden: false });
     draft.REPAIRS[0].priceNote = 'S$4/nail';
+    draft.REMOVAL = draft.REMOVAL.filter((r) => r.id !== 'other-ext');
 
     expect(diffCatalog(LIVE, draft)).toEqual([
       'Express Manicure: hidden from customers',
       'Classic Manicure: S$58 → S$62',
       'Classic Manicure: 45 min → 50 min',
       'Nail art: new — Tier 4 — Bespoke (S$70, 90 min)',
+      'Removal: deleted — Extensions',
       'Nail Fix: price note "S$3/nail" → "S$4/nail"',
     ]);
   });

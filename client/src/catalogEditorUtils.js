@@ -158,8 +158,12 @@ export function diffCatalog(live, draft) {
       const textFields = ['label', 'sub', 'desc'].filter((f) => (old[f] || null) !== (item[f] || null));
       if (textFields.length) lines.push(`${name}: wording updated`);
     }
-    // Live items can only be hidden, never removed, so the draft always contains every live id.
-    const liveOrder = before.map((i) => i.id).join('|');
+    const afterIds = new Set(after.map((i) => i.id));
+    for (const old of before) {
+      if (!afterIds.has(old.id)) lines.push(`${label}: deleted — ${old.name}`);
+    }
+    // Compare the order of items present in both, so a deletion alone isn't reported as a reorder.
+    const liveOrder = before.map((i) => i.id).filter((id) => afterIds.has(id)).join('|');
     const draftOrder = after.map((i) => i.id).filter((id) => beforeById.has(id)).join('|');
     if (draftOrder !== liveOrder) lines.push(`${label}: order changed`);
   }

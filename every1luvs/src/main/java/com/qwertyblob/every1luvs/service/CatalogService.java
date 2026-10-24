@@ -123,7 +123,7 @@ public class CatalogService {
             if (repository.existsByStatus(CatalogVersionEntity.DRAFT)) {
                 throw conflict("Another admin has already started a draft. Load the latest draft to continue.");
             }
-            CatalogDocument document = CatalogValidator.validate(request.content(), parse(published));
+            CatalogDocument document = CatalogValidator.validate(request.content());
             draft = new CatalogVersionEntity();
             draft.setStatus(CatalogVersionEntity.DRAFT);
             draft.setBasePublishedId(published.getId());
@@ -139,7 +139,7 @@ public class CatalogService {
             draft = lockDraft(request.draftId(), request.version());
             published = repository.findByStatus(CatalogVersionEntity.PUBLISHED)
                     .orElseThrow(() -> new IllegalStateException("No PUBLISHED catalog row."));
-            CatalogDocument document = CatalogValidator.validate(request.content(), parse(published));
+            CatalogDocument document = CatalogValidator.validate(request.content());
             draft.setContent(write(document));
             draft.setUpdatedBy(adminEmail);
             draft = repository.saveAndFlush(draft);
@@ -172,7 +172,7 @@ public class CatalogService {
             throw conflict("The live catalog was updated since this draft was started. "
                     + "Discard this draft and start again from the latest version.");
         }
-        CatalogDocument document = CatalogValidator.validate(parse(draft), parse(published));
+        CatalogDocument document = CatalogValidator.validate(parse(draft));
 
         published.setStatus(CatalogVersionEntity.SUPERSEDED);
         // Flush now so the one-PUBLISHED partial unique index is free before the draft takes it.
@@ -213,7 +213,7 @@ public class CatalogService {
     }
 
     private CatalogVersionEntity insertSeed() {
-        CatalogDocument document = CatalogValidator.validate(loadSeedDocument(), null);
+        CatalogDocument document = CatalogValidator.validate(loadSeedDocument());
         CatalogVersionEntity seed = new CatalogVersionEntity();
         seed.setStatus(CatalogVersionEntity.PUBLISHED);
         seed.setContent(write(document));

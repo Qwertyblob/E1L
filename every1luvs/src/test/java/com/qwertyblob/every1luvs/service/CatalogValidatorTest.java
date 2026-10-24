@@ -33,7 +33,7 @@ class CatalogValidatorTest {
 
     @Test
     void seed_isValidAndRoundTripsUnchanged() {
-        assertThat(CatalogValidator.validate(seed, seed)).isEqualTo(seed);
+        assertThat(CatalogValidator.validate(seed)).isEqualTo(seed);
     }
 
     @Test
@@ -44,7 +44,7 @@ class CatalogValidatorTest {
             return services;
         });
 
-        CatalogDocument.ServiceItem item = CatalogValidator.validate(doc, seed).nailServices().get(0);
+        CatalogDocument.ServiceItem item = CatalogValidator.validate(doc).nailServices().get(0);
 
         assertThat(item.name()).isEqualTo("Express Manicure");
         assertThat(item.label()).isEqualTo("Quick");
@@ -69,7 +69,7 @@ class CatalogValidatorTest {
             s.set(0, new CatalogDocument.ServiceItem(old.id(), old.label(), old.name(), old.desc(), 42, 0, false, true));
             return s;
         });
-        assertThat(CatalogValidator.validate(hiddenZero, seed).nailServices().get(0).durationMin()).isZero();
+        assertThat(CatalogValidator.validate(hiddenZero).nailServices().get(0).durationMin()).isZero();
     }
 
     @Test
@@ -108,12 +108,13 @@ class CatalogValidatorTest {
     }
 
     @Test
-    void rejects_removingALiveItem_butAllowsHidingIt() {
-        CatalogDocument removed = withServices(s -> {
+    void allows_deletingALiveItem_orHidingIt() {
+        CatalogDocument deleted = withServices(s -> {
             s.remove(0);
             return s;
         });
-        assertBadRequest(removed, "can't be deleted — hide it instead");
+        assertThat(CatalogValidator.validate(deleted).nailServices())
+                .extracting(CatalogDocument.ServiceItem::id).doesNotContain("express");
 
         CatalogDocument hidden = withServices(s -> {
             CatalogDocument.ServiceItem old = s.get(0);
@@ -121,7 +122,7 @@ class CatalogValidatorTest {
                     old.price(), old.durationMin(), false, true));
             return s;
         });
-        assertThat(CatalogValidator.validate(hidden, seed).nailServices().get(0).hidden()).isTrue();
+        assertThat(CatalogValidator.validate(hidden).nailServices().get(0).hidden()).isTrue();
     }
 
     @Test
@@ -130,7 +131,7 @@ class CatalogValidatorTest {
             s.add(new CatalogDocument.ServiceItem("gel-pedicure", null, "Gel Pedicure", null, 65, 60, false, false));
             return s;
         });
-        assertThat(CatalogValidator.validate(added, seed).nailServices()).hasSize(seed.nailServices().size() + 1);
+        assertThat(CatalogValidator.validate(added).nailServices()).hasSize(seed.nailServices().size() + 1);
     }
 
     @Test
@@ -161,7 +162,7 @@ class CatalogValidatorTest {
         // Hidden repairs don't count: the cap is about what a customer can select at once.
         repairs.set(0, new CatalogDocument.RepairItem("r0", "R0", null, null, null, true));
         CatalogDocument ok = new CatalogDocument(seed.nailServices(), seed.nailArt(), seed.removal(), repairs);
-        assertThat(CatalogValidator.validate(ok, null).repairs()).hasSize(BookingService.MAX_REPAIRS + 1);
+        assertThat(CatalogValidator.validate(ok).repairs()).hasSize(BookingService.MAX_REPAIRS + 1);
     }
 
     @Test
@@ -205,7 +206,7 @@ class CatalogValidatorTest {
     }
 
     private void assertBadRequest(CatalogDocument doc, String messageFragment) {
-        ResponseStatusException ex = catchThrowableOfType(() -> CatalogValidator.validate(doc, seed),
+        ResponseStatusException ex = catchThrowableOfType(() -> CatalogValidator.validate(doc),
                 ResponseStatusException.class);
         assertThat(ex).as("expected a 400 containing \"%s\"", messageFragment).isNotNull();
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);

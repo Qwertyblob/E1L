@@ -9,7 +9,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 
 /**
  * Validates + normalizes an admin-edited catalog document (on draft save AND on publish), with
@@ -40,11 +39,11 @@ final class CatalogValidator {
 
     /**
      * Returns the normalized document (strings trimmed, blanks → null, flags defaulted) or throws a
-     * 400. {@code published} is the live catalog (null only when seeding): an id it contains may be
-     * hidden but never removed, so a customer mid-checkout always gets a clean "no longer offered"
-     * instead of a dangling selection, and the editor can always un-hide it later.
+     * 400. Items may be added, hidden or deleted freely: bookings keep their own name/price
+     * snapshot, and a customer mid-checkout whose selection disappears is sent back to re-pick
+     * (BookingModal's catalog-change recovery), exactly as for a hidden item.
      */
-    static CatalogDocument validate(CatalogDocument document, CatalogDocument published) {
+    static CatalogDocument validate(CatalogDocument document) {
         if (document == null) {
             throw bad("The catalog is empty.");
         }
@@ -76,16 +75,6 @@ final class CatalogValidator {
                     + "must fit " + MAX_SNAPSHOT_LENGTH + " characters). Shorten some names or hide a repair.");
         }
 
-        if (published != null) {
-            requireNoRemovals("Services", ids(published.nailServices().stream().map(CatalogDocument.ServiceItem::id)),
-                    ids(services.stream().map(CatalogDocument.ServiceItem::id)));
-            requireNoRemovals("Nail art", ids(published.nailArt().stream().map(CatalogDocument.AddOnItem::id)),
-                    ids(nailArt.stream().map(CatalogDocument.AddOnItem::id)));
-            requireNoRemovals("Removal", ids(published.removal().stream().map(CatalogDocument.AddOnItem::id)),
-                    ids(removal.stream().map(CatalogDocument.AddOnItem::id)));
-            requireNoRemovals("Repairs", ids(published.repairs().stream().map(CatalogDocument.RepairItem::id)),
-                    ids(repairs.stream().map(CatalogDocument.RepairItem::id)));
-        }
         return new CatalogDocument(services, nailArt, removal, repairs);
     }
 
@@ -212,20 +201,6 @@ final class CatalogValidator {
             throw bad(where + " needs a duration between 0 and " + MAX_DURATION_MIN + " minutes.");
         }
         return duration;
-    }
-
-    private static void requireNoRemovals(String section, Set<String> publishedIds, Set<String> draftIds) {
-        for (String id : publishedIds) {
-            if (!draftIds.contains(id)) {
-                throw bad(section + ": \"" + id + "\" is live and can't be deleted — hide it instead.");
-            }
-        }
-    }
-
-    private static Set<String> ids(Stream<String> ids) {
-        Set<String> set = new HashSet<>();
-        ids.forEach(set::add);
-        return set;
     }
 
     private static String trimToNull(String value) {

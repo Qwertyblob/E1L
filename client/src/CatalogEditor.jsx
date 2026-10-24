@@ -136,10 +136,9 @@ function CatalogItemCard({ section, item, index, count, isLive, issues, onChange
           <input checked={!item.hidden} onChange={(e) => onChange({ hidden: !e.target.checked })} type="checkbox" />
           <span>Shown to customers</span>
         </label>
-        {/* Live items are hidden rather than deleted, so bookings in progress stay valid. */}
-        {!isLive && (
-          <button className="text-button" onClick={onRemove} type="button">Remove</button>
-        )}
+        {/* Deleting is safe: bookings keep their own name/price copy, and a customer mid-checkout
+            who had it selected is sent back to re-pick. Hide instead to keep it for later. */}
+        <button className="text-button catalog-delete" onClick={onRemove} type="button">Delete</button>
       </div>
     </li>
   );
@@ -172,6 +171,24 @@ export default function CatalogEditor({ apiRequest, requestConfirm }) {
     ? 'Unsaved changes'
     : hasDraft ? 'Draft saved — not live yet' : 'Live — no unpublished changes';
   const blocked = issues.length > 0;
+
+  // A never-published item just disappears from the draft; a live one is confirmed first because
+  // publishing will take it off the website (hiding keeps it in the editor for later).
+  function confirmDelete(section, item, index) {
+    if (!liveIds[section.key].has(item.id)) {
+      editor.removeItem(section.key, index);
+      return;
+    }
+    requestConfirm({
+      title: `Delete ${item.name || `this ${section.singular}`}?`,
+      message: 'It is removed from your draft and disappears from the website when you publish. '
+        + "Existing bookings aren't affected. To take it off the website but keep it for later, untick "
+        + '"Shown to customers" instead.',
+      confirmLabel: 'Delete',
+      busyLabel: 'Deleting…',
+      run: () => editor.removeItem(section.key, index),
+    });
+  }
 
   function confirmDiscard() {
     if (!hasDraft) {
@@ -257,7 +274,7 @@ export default function CatalogEditor({ apiRequest, requestConfirm }) {
                     key={index}
                     onChange={(patch) => editor.updateItem(section.key, index, patch)}
                     onMove={(delta) => editor.moveItem(section.key, index, delta)}
-                    onRemove={() => editor.removeItem(section.key, index)}
+                    onRemove={() => confirmDelete(section, item, index)}
                     section={section}
                   />
                 ))}

@@ -255,7 +255,9 @@ class CatalogServiceTest {
     void publish_ofAnInvalidDraft_is400AndChangesNothing() {
         catalogService.install(BookingCatalog.of(5L, seed));
         List<CatalogDocument.ServiceItem> services = new ArrayList<>(seed.nailServices());
-        services.remove(0); // removing a live service is not allowed (hide it instead)
+        CatalogDocument.ServiceItem express = services.get(0);
+        services.set(0, new CatalogDocument.ServiceItem(express.id(), express.label(), express.name(),
+                express.desc(), -1, express.durationMin(), false, false)); // negative price
         CatalogDocument invalid = new CatalogDocument(services, seed.nailArt(), seed.removal(), seed.repairs());
         when(repository.findByStatusForUpdate(CatalogVersionEntity.DRAFT)).thenReturn(Optional.of(draft(9L, 3L, 5L, invalid)));
         when(repository.findByStatusForUpdate(CatalogVersionEntity.PUBLISHED)).thenReturn(Optional.of(published(5L, seed)));

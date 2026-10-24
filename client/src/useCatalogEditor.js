@@ -181,7 +181,7 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
     });
   }
 
-  // Only items that were never live can be removed; live ones are hidden instead.
+  // Delete an item from the draft (CatalogEditor confirms first for live items).
   function removeItem(sectionKey, index) {
     setWorking((doc) => ({ ...doc, [sectionKey]: doc[sectionKey].filter((_, i) => i !== index) }));
   }

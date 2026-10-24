@@ -60,7 +60,7 @@ npm run build                      # production bundle -> dist/
 ### Editing services and prices
 
 No code changes needed: sign in as an admin, open **My Profile → Services & Prices**, edit (prices,
-durations, names, descriptions; add new items; hide items you no longer offer), **Save draft**, then
+durations, names, descriptions; add new items; hide or delete items you no longer offer), **Save draft**, then
 **Review & publish**. Customers see the live catalog until you publish; existing bookings keep the
 price they were booked at. The catalog lives in the database (`tbl_catalog_versions`);
 `every1luvs/src/main/resources/catalog/seed-services.json` is only used to seed it on first boot.

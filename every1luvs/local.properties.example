@@ -10,10 +10,10 @@ AUTH_TOKEN_SECRET=
 # Local Postgres. Defaults (application.properties): 127.0.0.1:5432/every1luvs, user "jarvis",
 # empty password. Uncomment to point elsewhere.
 #DATABASE_URL=jdbc:postgresql://127.0.0.1:5432/every1luvs
-#DB_USERNAME=jarvis
+#DB_USERNAME=
 #DB_PASSWORD=
 
 # Optional: create/promote an admin account on startup (only needed for a fresh database).
 #BOOTSTRAP_ADMIN_ENABLED=true
-#BOOTSTRAP_ADMIN_EMAIL=admin@local.test
-#BOOTSTRAP_ADMIN_PASSWORD=ChangeMe!2345
+#BOOTSTRAP_ADMIN_EMAIL=
+#BOOTSTRAP_ADMIN_PASSWORD=

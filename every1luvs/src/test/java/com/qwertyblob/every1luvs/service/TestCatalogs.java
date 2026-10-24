@@ -11,7 +11,7 @@ final class TestCatalogs {
     }
 
     static CatalogDocument seedDocument() {
-        return CatalogValidator.validate(CatalogService.loadSeedDocument(), null);
+        return CatalogValidator.validate(CatalogService.loadSeedDocument());
     }
 
     static BookingCatalog seed() {
