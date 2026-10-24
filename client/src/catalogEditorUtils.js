@@ -51,14 +51,30 @@ export function uniqueId(base, takenIds) {
   }
 }
 
+// Client identity is independent of the editable catalog id and the item's position. Reserve
+// restored keys before assigning any new ones, including after a page reload resets the counter.
+let clientKey = 0;
+
+export function withClientKeys(doc) {
+  for (const { key } of SECTIONS) {
+    for (const item of doc[key] || []) {
+      if (Number.isSafeInteger(item._key)) clientKey = Math.max(clientKey, item._key);
+    }
+  }
+  return Object.fromEntries(SECTIONS.map(({ key }) => [key, (doc[key] || []).map((item) => ({
+    ...item, _key: item._key ?? ++clientKey,
+  }))]));
+}
+
 export function newItem(kind, id) {
+  const _key = ++clientKey;
   if (kind === 'service') {
-    return { id, label: null, name: '', desc: null, price: 0, durationMin: 30, popular: false, hidden: false, imageId: null };
+    return { _key, id, label: null, name: '', desc: null, price: 0, durationMin: 30, popular: false, hidden: false, imageId: null };
   }
   if (kind === 'repair') {
-    return { id, name: '', sub: null, desc: null, priceNote: null, hidden: false };
+    return { _key, id, name: '', sub: null, desc: null, priceNote: null, hidden: false };
   }
-  return { id, name: '', sub: null, price: 0, durationMin: 0, hidden: false };
+  return { _key, id, name: '', sub: null, price: 0, durationMin: 0, hidden: false };
 }
 
 // Treat '' and null as the same so clearing a field and the server's normalized null compare equal.
@@ -67,7 +83,8 @@ function canonical(doc) {
   const out = {};
   for (const { key } of SECTIONS) {
     out[key] = (doc[key] || []).map((item) => Object.fromEntries(
-      Object.entries(item).map(([k, v]) => [k, v === '' ? null : v]).sort(([a], [b]) => a.localeCompare(b)),
+      Object.entries(item).filter(([k]) => !k.startsWith('_'))
+        .map(([k, v]) => [k, v === '' ? null : v]).sort(([a], [b]) => a.localeCompare(b)),
     ));
   }
   return JSON.stringify(out);

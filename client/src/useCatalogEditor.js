@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  LIMITS, NONE_ID, PHOTO_TYPES, SECTIONS, diffCatalog, newItem, sameDocument, slugify, uniqueId, validateCatalog,
+  LIMITS, NONE_ID, PHOTO_TYPES, SECTIONS, diffCatalog, newItem, sameDocument, slugify, uniqueId, validateCatalog, withClientKeys,
 } from './catalogEditorUtils';
 
 // Unsaved edits are mirrored to sessionStorage (this tab only) so they survive the editor being
@@ -62,7 +62,7 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
   const [busy, setBusy] = useState(null); // saving | discarding | publishing | null
   const [message, setMessage] = useState(null); // { type: 'success' | 'error', text }
   const [conflict, setConflict] = useState(false);
-  // Per-service photo upload state, keyed `${sectionKey}:${index}`: { uploading, error }.
+  // Per-service photo upload state, keyed `${sectionKey}:${_key}`: { uploading, error }.
   const [photoState, setPhotoState] = useState({});
 
   // Adopt a server view. With `restoreUnsaved`, edits kept from before the editor was unmounted are
@@ -82,7 +82,7 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
     }
     if (!restored) writeUnsaved(null);
     setView(next);
-    setWorking(restored || content);
+    setWorking(withClientKeys(restored || content));
     setBaseContent(content);
     setBasePublishedId(next.draft ? next.draft.basePublishedId : next.published.id);
     setConflict(false);
@@ -145,7 +145,10 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
     const body = view.draft
       ? { draftId: view.draft.id, version: view.draft.version, content: working }
       : { draftId: null, version: null, basePublishedId, content: working };
-    const next = await apiRequest('/api/admin/catalog/draft', { method: 'PUT', body: JSON.stringify(body) });
+    const next = await apiRequest('/api/admin/catalog/draft', {
+      method: 'PUT',
+      body: JSON.stringify(body, (key, value) => (key.startsWith('_') ? undefined : value)),
+    });
     apply(next);
     return next;
   }
@@ -239,8 +242,11 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
 
   // ── local edits ──
 
-  function updateItem(sectionKey, index, patch) {
+  function updateItem(sectionKey, key, patch) {
     setWorking((doc) => {
+      const index = doc[sectionKey].findIndex((item) => item._key === key);
+      // An async upload or confirmation can finish after this item was deleted/reloaded.
+      if (index < 0) return doc;
       const items = doc[sectionKey].slice();
       const item = { ...items[index], ...patch };
       // Ids are never typed: a not-yet-live item's id follows its name; a live item's id is fixed.
@@ -263,8 +269,8 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
 
   // Upload a photo for a service card and point the item at it. The photo is stored straight away
   // but only appears on the website once the draft that uses it is published.
-  async function uploadPhoto(sectionKey, index, file) {
-    const key = `${sectionKey}:${index}`;
+  async function uploadPhoto(sectionKey, itemKey, file) {
+    const key = `${sectionKey}:${itemKey}`;
     if (!file) return;
     if (!PHOTO_TYPES.includes(file.type)) {
       setPhotoState((s) => ({ ...s, [key]: { error: 'Please choose a JPEG or PNG photo.' } }));
@@ -281,7 +287,7 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
         method: 'POST',
         body: JSON.stringify({ contentType: file.type, data }),
       });
-      updateItem(sectionKey, index, { imageId: id });
+      updateItem(sectionKey, itemKey, { imageId: id });
       setPhotoState((s) => ({ ...s, [key]: {} }));
     } catch (error) {
       setPhotoState((s) => ({ ...s, [key]: { error: error.message } }));
@@ -289,12 +295,13 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
   }
 
   // Delete an item from the draft (CatalogEditor confirms first for live items).
-  function removeItem(sectionKey, index) {
-    setWorking((doc) => ({ ...doc, [sectionKey]: doc[sectionKey].filter((_, i) => i !== index) }));
+  function removeItem(sectionKey, key) {
+    setWorking((doc) => ({ ...doc, [sectionKey]: doc[sectionKey].filter((item) => item._key !== key) }));
   }
 
-  function moveItem(sectionKey, index, delta) {
+  function moveItem(sectionKey, key, delta) {
     setWorking((doc) => {
+      const index = doc[sectionKey].findIndex((item) => item._key === key);
       const items = doc[sectionKey].slice();
       const target = index + delta;
       // The "none" option stays first in nail art / removal.

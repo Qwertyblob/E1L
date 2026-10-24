@@ -234,9 +234,9 @@ export default function CatalogEditor({ apiRequest, requestConfirm }) {
 
   // A never-published item just disappears from the draft; a live one is confirmed first because
   // publishing will take it off the website (hiding keeps it in the editor for later).
-  function confirmDelete(section, item, index) {
+  function confirmDelete(section, item) {
     if (!liveIds[section.key].has(item.id)) {
-      editor.removeItem(section.key, index);
+      editor.removeItem(section.key, item._key);
       return;
     }
     requestConfirm({
@@ -246,7 +246,7 @@ export default function CatalogEditor({ apiRequest, requestConfirm }) {
         + '"Shown to customers" instead.',
       confirmLabel: 'Delete',
       busyLabel: 'Deleting…',
-      run: () => editor.removeItem(section.key, index),
+      run: () => editor.removeItem(section.key, item._key),
     });
   }
 
@@ -329,14 +329,12 @@ export default function CatalogEditor({ apiRequest, requestConfirm }) {
                     isLive={liveIds[section.key].has(item.id)}
                     issues={sectionIssues}
                     item={item}
-                    // Index key: a new item's id follows its name while typing, and re-keying on
-                    // every keystroke would drop input focus.
-                    key={index}
-                    onChange={(patch) => editor.updateItem(section.key, index, patch)}
-                    onMove={(delta) => editor.moveItem(section.key, index, delta)}
-                    onRemove={() => confirmDelete(section, item, index)}
-                    onUpload={(file) => editor.uploadPhoto(section.key, index, file)}
-                    photo={editor.photoState[`${section.key}:${index}`]}
+                    key={item._key}
+                    onChange={(patch) => editor.updateItem(section.key, item._key, patch)}
+                    onMove={(delta) => editor.moveItem(section.key, item._key, delta)}
+                    onRemove={() => confirmDelete(section, item)}
+                    onUpload={(file) => editor.uploadPhoto(section.key, item._key, file)}
+                    photo={editor.photoState[`${section.key}:${item._key}`]}
                     section={section}
                   />
                 ))}

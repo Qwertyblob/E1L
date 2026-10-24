@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import CATALOG from './__fixtures__/catalog.json';
@@ -45,6 +45,7 @@ function setupFetch(extra = []) {
     const path = String(url).split('?')[0];
     const match = routes.find((r) => r.method === method && path.endsWith(r.path));
     if (!match) return jsonResponse(404, { message: `no route for ${method} ${url}` });
+    if (match.response) return match.response;
     const body = typeof match.body === 'function' ? match.body(opts) : match.body;
     return jsonResponse(match.status ?? 200, body);
   });
@@ -97,6 +98,7 @@ describe('Admin catalog editor — drafts', () => {
     expect(call[1].headers['X-XSRF-TOKEN']).toBe('admin-tok');
     expect(bodyOf(call)).toMatchObject({ draftId: null, version: null, basePublishedId: LIVE_ID });
     expect(bodyOf(call).content.NAIL_SERVICES[1]).toMatchObject({ id: 'classic', price: 62 });
+    expect(call[1].body).not.toContain('"_key"');
     expect(await screen.findByText('Draft saved — not live yet')).toBeInTheDocument();
   });
 
@@ -192,6 +194,26 @@ describe('Admin catalog editor — drafts', () => {
     expect(sessionStorage.getItem('e1l.catalogEditor.unsaved')).toBeNull();
   });
 
+  test('restored item keys remain stable and do not collide with newly added services', async () => {
+    const working = withClassicPrice(62);
+    working.NAIL_SERVICES[1]._key = 100000;
+    sessionStorage.setItem('e1l.catalogEditor.unsaved', JSON.stringify({
+      revision: `live:${LIVE_ID}`, working,
+    }));
+    setupFetch([{ method: 'GET', path: '/api/admin/catalog', body: liveView() }]);
+    await gotoServicesTab();
+    expect(screen.getByText('Restored your unsaved changes.')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '+ Add service' }));
+    await userEvent.type(field('NAIL_SERVICES', LIVE.NAIL_SERVICES.length, 'name'), 'Gel Pedicure');
+
+    const restored = JSON.parse(sessionStorage.getItem('e1l.catalogEditor.unsaved')).working;
+    expect(restored.NAIL_SERVICES[1]).toMatchObject({ _key: 100000, id: 'classic', name: 'Classic Manicure', price: 62 });
+    const keys = Object.values(restored).flat().map((item) => item._key);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(restored.NAIL_SERVICES.at(-1).name).toBe('Gel Pedicure');
+  });
+
   test('a new service needs a picture before it can be saved', async () => {
     setupFetch([{ method: 'GET', path: '/api/admin/catalog', body: liveView() }]);
     await gotoServicesTab();
@@ -213,6 +235,61 @@ describe('Admin catalog editor — drafts', () => {
 
     expect(await screen.findByText('Please choose a JPEG or PNG photo.')).toBeInTheDocument();
     expect(callsTo('POST', '/api/admin/catalog/images')).toHaveLength(0);
+  });
+
+  test('a pending photo upload follows its service when reordered', async () => {
+    let finishUpload;
+    const response = new Promise((resolve) => { finishUpload = resolve; });
+    setupFetch([
+      { method: 'GET', path: '/api/admin/catalog', body: liveView() },
+      { method: 'PUT', path: '/api/admin/catalog/draft', body: draftView(LIVE, 0) },
+      { method: 'POST', path: '/api/admin/catalog/images', response },
+    ]);
+    await gotoServicesTab();
+    await userEvent.upload(field('NAIL_SERVICES', 1, 'imageId'), new File(['jpg'], 'classic.jpg', { type: 'image/jpeg' }));
+    await waitFor(() => expect(callsTo('POST', '/api/admin/catalog/images')).toHaveLength(1));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Move Classic Manicure down' }));
+    expect(field('NAIL_SERVICES', 2, 'imageId')).toBeDisabled();
+    expect(field('NAIL_SERVICES', 1, 'imageId')).toBeEnabled();
+    await act(async () => { finishUpload(jsonResponse(200, { id: 'uploaded-classic' })); });
+    expect(await screen.findByAltText('Classic Manicure picture')).toHaveAttribute('src', '/api/catalog/images/uploaded-classic');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(callsTo('PUT', '/api/admin/catalog/draft')).toHaveLength(1));
+    const [call] = callsTo('PUT', '/api/admin/catalog/draft');
+    const services = bodyOf(call).content.NAIL_SERVICES;
+    expect(services[2]).toMatchObject({ id: 'classic', imageId: 'uploaded-classic' });
+    expect(services[1]).toEqual(LIVE.NAIL_SERVICES[2]);
+    expect(call[1].body).not.toContain('"_key"');
+  });
+
+  test('a pending photo upload is ignored after its new service is deleted', async () => {
+    let finishUpload;
+    const response = new Promise((resolve) => { finishUpload = resolve; });
+    setupFetch([
+      { method: 'GET', path: '/api/admin/catalog', body: liveView() },
+      { method: 'PUT', path: '/api/admin/catalog/draft', body: draftView(withClassicPrice(62), 0) },
+      { method: 'POST', path: '/api/admin/catalog/images', response },
+    ]);
+    await gotoServicesTab();
+    await setNumber(field('NAIL_SERVICES', 1, 'price'), 62);
+    await userEvent.click(screen.getByRole('button', { name: '+ Add service' }));
+    const index = LIVE.NAIL_SERVICES.length;
+    await userEvent.type(field('NAIL_SERVICES', index, 'name'), 'Gel Pedicure');
+    await userEvent.upload(field('NAIL_SERVICES', index, 'imageId'), new File(['jpg'], 'new.jpg', { type: 'image/jpeg' }));
+    await waitFor(() => expect(callsTo('POST', '/api/admin/catalog/images')).toHaveLength(1));
+
+    const added = screen.getByText('Gel Pedicure', { selector: '.catalog-item-title' }).closest('li');
+    await userEvent.click(within(added).getByRole('button', { name: 'Delete' }));
+    await act(async () => { finishUpload(jsonResponse(200, { id: 'deleted-service-photo' })); });
+
+    expect(field('NAIL_SERVICES', index, 'name')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(callsTo('PUT', '/api/admin/catalog/draft')).toHaveLength(1));
+    const [call] = callsTo('PUT', '/api/admin/catalog/draft');
+    expect(bodyOf(call).content).toEqual(withClassicPrice(62));
+    expect(call[1].body).not.toContain('"_key"');
   });
 
   test('invalid fields are flagged inline and block saving', async () => {
