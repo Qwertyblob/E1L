@@ -539,6 +539,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   const now = new Date();
   const [step, setStep] = useState(0);
   const [done, setDone] = useState(false);
+  const [confirmed, setConfirmed] = useState(null);
 
   const [serviceId, setServiceId] = useState(null);
   const [nailArt, setNailArt] = useState('none');
@@ -644,7 +645,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   // their picked time is no longer offered (e.g. a republish lengthened the appointment, or the slot
   // filled), send them back to choose another rather than letting them confirm a time that can't fit.
   const onAvailabilityLoaded = useEffectEvent((slots) => {
-    if (step <= 2 || !date || !time) return;
+    if (done || step <= 2 || !date || !time) return;
     const stillOffered = slots.some((slot) => slot?.available !== false
       && String(slot.startTime).slice(0, 10) === date
       && String(slot.startTime).slice(11, 16) === time);
@@ -655,7 +656,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   useEffect(() => {
     // No service chosen yet — nothing to check; availableSlots stays at its initial []. (serviceId
     // only ever goes null -> a real id, so there's no stale list to clear.)
-    if (!serviceId) return undefined;
+    if (done || !serviceId) return undefined;
     const seq = (availabilitySeq.current += 1);
     const quoteKey = `${version}|${serviceId}|${nailArt}|${removal}`;
     const controller = new AbortController();
@@ -665,19 +666,19 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
     fetch(`${API_BASE_URL}/api/slots/available?${params.toString()}`, { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
-        if (seq !== availabilitySeq.current) return;
+        if (controller.signal.aborted || seq !== availabilitySeq.current) return;
         const slots = Array.isArray(data) ? data : [];
         setAvailableSlots(slots);
         setLoadedQuoteKey(quoteKey);
         onAvailabilityLoaded(slots);
       })
       .catch((err) => {
-        if (err.name === 'AbortError' || seq !== availabilitySeq.current) return;
+        if (controller.signal.aborted || err.name === 'AbortError' || seq !== availabilitySeq.current) return;
         setAvailableSlots([]);
         setLoadedQuoteKey(quoteKey);
       });
     return () => controller.abort();
-  }, [serviceId, nailArt, removal, version, availabilityNonce]);
+  }, [done, serviceId, nailArt, removal, version, availabilityNonce]);
 
   const service = useMemo(
     () => catalog.NAIL_SERVICES.find((s) => s.id === serviceId) || null,
@@ -816,7 +817,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
   // Track the catalog the current quote is built on; a new version (focus/visibility refresh,
   // acceptance refresh) runs the recovery above. The first ready catalog just becomes the baseline.
   const onCatalogVersion = useEffectEvent((nextCatalog, nextVersion) => {
-    if (nextVersion == null) return;
+    if (done || nextVersion == null) return;
     if (quoteVersionRef.current == null) {
       quoteVersionRef.current = nextVersion;
       quoteCatalogRef.current = nextCatalog;
@@ -934,6 +935,8 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
         // Strip the preview data-URL + size; the API only needs filename/contentType/base64 data.
         attachments: attachments.map((a) => ({ filename: a.filename, contentType: a.contentType, data: a.data })),
       });
+      // Keep the accepted booking details even if the live catalog changes after confirmation.
+      setConfirmed({ service, addOns: addOnsLabel, date, time, total });
       setDone(true);
     } catch (err) {
       if (err?.code === 'CATALOG_VERSION_MISMATCH') {
@@ -966,11 +969,11 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
         {done ? (
           <SuccessView
             formEmail={form.email}
-            service={service}
-            addOns={addOnsLabel}
-            date={date}
-            time={time}
-            total={total}
+            service={confirmed.service}
+            addOns={confirmed.addOns}
+            date={confirmed.date}
+            time={confirmed.time}
+            total={confirmed.total}
             deposit={deposit}
             onClose={onClose}
           />

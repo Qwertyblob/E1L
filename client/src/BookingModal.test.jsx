@@ -410,6 +410,29 @@ async function toPaidDepositStep() {
 
 const apiError = (message, code) => Object.assign(new Error(message), { status: 409, code });
 
+describe('BookingModal — completed booking', () => {
+  test.each([
+    ['repriced', classicAt(62)],
+    ['deleted', republished(2, (c) => {
+      c.NAIL_SERVICES = c.NAIL_SERVICES.filter((service) => service.id !== 'classic');
+    })],
+  ])('keeps the confirmation unchanged when the service is %s after booking', async (_change, nextCatalog) => {
+    renderModal();
+    await toPaidDepositStep();
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+    await screen.findByText('Booking request received 🎉');
+
+    serveCatalog(nextCatalog, []);
+    await refocusTab();
+
+    const summary = document.querySelector('.bk-summary--success');
+    expect(within(summary).getByText('Classic Manicure')).toBeInTheDocument();
+    expect(within(summary).getByText('S$58')).toBeInTheDocument();
+    expect(depositClaims()).toHaveLength(0);
+    expect(global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/slots/available'))).toHaveLength(0);
+  });
+});
+
 describe('BookingModal — approval is bound to the reviewed catalog version', () => {
   test('the T&C step recaps the quote being accepted', async () => {
     renderModal();
