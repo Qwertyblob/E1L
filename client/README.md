@@ -27,5 +27,6 @@ Run from `client/`:
   `build.modulePreload.polyfill = false` so the build emits no inline `<script>`. Don't
   re-enable it without loosening the CSP in `nginx/nginx.conf`.
 - **Service catalog:** loaded live from `GET /api/catalog` via `src/CatalogContext.jsx` and edited
-  by admins in the Services & Prices tab (`src/CatalogEditor.jsx`). There is no bundled price list;
-  tests use `src/__fixtures__/catalog.json`.
+  by admins in the Services & Prices tab (`src/CatalogEditor.jsx`). If the backend is down, nginx
+  serves its last-good copy; failing that, `src/catalogFallback.json` (a copy of the backend seed)
+  keeps prices on the landing page while booking is paused. Tests use `src/__fixtures__/catalog.json`.

@@ -168,14 +168,10 @@ function LandingView({
           <button className="text-link-button featured-service-cta" onClick={onBook} type="button">Request a Slot &#8594;</button>
         </div>
 
-        {/* Prices are admin-editable and fetched live; never show a stale bundled price, so the
-            grid waits for the catalog (or says it's unavailable) instead. */}
+        {/* Prices are admin-editable and fetched live. If the backend is down, CatalogContext
+            serves nginx's last-good copy or, failing that, the bundled one — so this grid always
+            fills once loading finishes. */}
         {catalogStatus === 'loading' && <p className="catalog-status">Loading services…</p>}
-        {catalogStatus === 'error' && (
-          <p className="catalog-status catalog-status--error" role="alert">
-            Our services and prices couldn't be loaded. Please refresh the page.
-          </p>
-        )}
         <div className="service-card-grid">
           {NAIL_SERVICES.map((svc) => (
             <div className="service-card" key={svc.id}>

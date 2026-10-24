@@ -19,5 +19,8 @@ COPY nginx/nginx.conf /etc/nginx/conf.d/app.conf
 # Shared /api proxy snippet included by the per-route location blocks in app.conf. Not in
 # conf.d/ (those load at http scope); included by absolute path from inside each location.
 COPY nginx/api_proxy.conf /etc/nginx/api_proxy.conf
+# Last-good /api/catalog copy (see the /api/catalog location in nginx.conf). Created here, owned by
+# the worker user, so a fresh named volume mounted on it (web_cache) inherits writable ownership.
+RUN mkdir -p /var/cache/nginx/catalog && chown nginx:nginx /var/cache/nginx/catalog
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80

@@ -599,3 +599,16 @@ describe('BookingModal — recovery keeps a paid deposit safe', () => {
     expect(screen.queryByText('Our prices were just updated.')).not.toBeInTheDocument();
   });
 });
+
+describe('BookingModal — backend down (bundled fallback catalog)', () => {
+  test('services and prices still show, but booking is paused', async () => {
+    global.fetch = jest.fn(() => Promise.reject(new Error('backend down')));
+    render(<CatalogProvider><BookingModal onClose={jest.fn()} onConfirm={jest.fn()} /></CatalogProvider>);
+
+    expect(await screen.findByText(/Online booking is temporarily unavailable/)).toBeInTheDocument();
+    const classic = screen.getByRole('button', { name: /^Classic Manicure/ });
+    expect(within(classic).getByText('S$58')).toBeInTheDocument();
+    await userEvent.click(classic);
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  });
+});

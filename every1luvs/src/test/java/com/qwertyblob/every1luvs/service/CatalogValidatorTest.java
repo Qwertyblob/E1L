@@ -5,6 +5,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import tools.jackson.databind.json.JsonMapper;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.UnaryOperator;
@@ -15,6 +19,17 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 class CatalogValidatorTest {
 
     private final CatalogDocument seed = TestCatalogs.seedDocument();
+
+    @Test
+    void clientBundledFallback_matchesTheSeed() throws Exception {
+        // client/src/catalogFallback.json is what the landing page shows if neither the app nor
+        // nginx's last-good copy answers; it must be the same catalog the backend seeds with.
+        JsonMapper json = JsonMapper.builder().build();
+        try (var seed = CatalogValidatorTest.class.getResourceAsStream(CatalogService.SEED_RESOURCE)) {
+            assertThat(json.readTree(Files.readString(Path.of("../client/src/catalogFallback.json"))))
+                    .isEqualTo(json.readTree(seed));
+        }
+    }
 
     @Test
     void seed_isValidAndRoundTripsUnchanged() {

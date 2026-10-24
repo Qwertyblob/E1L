@@ -141,9 +141,12 @@ function ServiceStep({ services, serviceId, selectService, catalogStatus }) {
   return (
     <>
       {catalogStatus === 'loading' && <p className="bk-prompt">Loading services…</p>}
-      {catalogStatus === 'error' && (
+      {catalogStatus === 'fallback' && (
+        // Showing the bundled backup catalog: the live prices (and the booking system) are
+        // unreachable right now, so don't let anyone book against possibly-outdated prices.
         <p className="bk-booking-error" role="alert">
-          Our services and prices couldn't be loaded. Please close this window and refresh the page.
+          Online booking is temporarily unavailable. Please try again in a little while, or message us
+          on Instagram to book.
         </p>
       )}
       <div className="bk-service-list">
@@ -712,7 +715,7 @@ export default function BookingModal({ onClose, onConfirm, currentUser }) {
 
   const currentQuoteKey = serviceId ? `${version}|${serviceId}|${nailArt}|${removal}` : null;
   const canContinue = (() => {
-    if (step === 0) return !!service;
+    if (step === 0) return !!service && catalogStatus === 'ready';
     // Gate on availability having loaded for the CURRENT quote, and on the picked time still being
     // offered for it — so a stale selection from a previous service/add-on can't be carried forward.
     if (step === 2) {

@@ -100,6 +100,8 @@ services:
     depends_on:
       app:
         condition: service_healthy     # don't serve the SPA until /api can answer
+    volumes:
+      - web_cache:/var/cache/nginx/catalog   # last-good /api/catalog copy, survives redeploys
     networks:
       edge:
         ipv4_address: 172.20.0.10      # static edge IP; the tunnel targets http://172.20.0.10:80
@@ -135,3 +137,5 @@ networks:
 
 volumes:
   db_data:
+  # nginx's last-good copy of GET /api/catalog, served if the app is down (see nginx/nginx.conf).
+  web_cache:

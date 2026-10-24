@@ -1343,7 +1343,6 @@ input:focus {
   text-align: center;
   color: var(--muted);
 }
-.catalog-status--error { color: var(--coral); }
 
 .service-card-grid {
   display: grid;

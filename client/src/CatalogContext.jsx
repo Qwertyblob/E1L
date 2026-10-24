@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import FALLBACK_CATALOG from './catalogFallback.json';
 
 // Relative base so requests go through the dev-server proxy (same-origin). See App.jsx.
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -23,8 +24,14 @@ function normalize(data) {
 
 /**
  * Serves the live service catalog (names, prices, durations) to the landing page, booking flow and
- * admin editor. Prices are admin-editable, so there is deliberately NO bundled fallback: while
- * loading the UI shows a placeholder, never a possibly-outdated price.
+ * admin editor.
+ *
+ * Outage behaviour: nginx keeps the last successful /api/catalog response and serves it when the
+ * app is down (see nginx/nginx.conf), so normally visitors still get the last PUBLISHED prices. Only
+ * if no catalog can be fetched at all does this fall back to the bundled first-boot copy
+ * (catalogFallback.json, the same content as the backend seed) with status 'fallback' and no
+ * version: the landing page still shows services and prices, but booking is paused because those
+ * prices may be out of date and the backend can't take a booking anyway.
  *
  * The catalog is re-fetched whenever the tab regains focus/visibility, so a long-open tab picks up
  * a publish. `refresh()` resolves to the fresh `{ version, catalog }` (or null if the request failed)
@@ -58,8 +65,11 @@ export function CatalogProvider({ children, initial = null }) {
         return next;
       })
       .catch(() => {
-        // Keep a previously loaded catalog on a transient failure; only an initial failure is an error.
-        setState((prev) => (prev.status === 'ready' ? prev : { ...prev, status: 'error' }));
+        // Keep a previously loaded live catalog on a transient failure; with nothing live yet,
+        // show the bundled copy rather than an empty page.
+        setState((prev) => (
+          prev.status === 'ready' ? prev : { status: 'fallback', ...normalize({ ...FALLBACK_CATALOG, version: null }) }
+        ));
         return null;
       })
       .finally(() => {

@@ -227,3 +227,16 @@ describe('diffCatalog', () => {
     ]);
   });
 });
+
+describe('Landing page when the backend is down', () => {
+  test('still shows services and prices from the bundled copy', async () => {
+    localStorage.clear();
+    setupFetch([{ method: 'GET', path: '/api/catalog', status: 503, body: { message: 'down' } }]);
+    render(<App />);
+
+    const classic = (await screen.findByText('Classic Manicure', { selector: '.service-card-title' })).closest('.service-card');
+    expect(within(classic).getByText('S$58')).toBeInTheDocument();
+    expect(screen.getByText('S$3/nail')).toBeInTheDocument();
+    expect(screen.queryByText('Loading services…')).not.toBeInTheDocument();
+  });
+});
