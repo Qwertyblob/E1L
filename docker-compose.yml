@@ -71,7 +71,7 @@ services:
       MAIL_PASSWORD: ${MAIL_PASSWORD:?MAIL_PASSWORD is required}
       # Blank → the app falls back to APP_MAIL_FROM (see BookingMailService).
       ADMIN_NOTIFICATION_EMAIL: ${ADMIN_NOTIFICATION_EMAIL:-}
-      REVIEW_URL: ${REVIEW_URL-https://instagram.com/every1luvsnails}
+      REVIEW_URL: ${REVIEW_URL-https://instagram.com/every1luvss.co}
       BOOKING_URL: ${BOOKING_URL-https://every1luvs.com/#services}
     depends_on:
       db:

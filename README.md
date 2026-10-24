@@ -88,7 +88,7 @@ rebook — no separate "no-show" status is needed.
 **Destination links** (both on by default — override in the server `.env` if needed):
 
 - `REVIEW_URL` — where the review email links. **Defaults to the Instagram page**
-  (`https://instagram.com/every1luvsnails`). Override with a dedicated review page (e.g. a Google
+  (`https://instagram.com/every1luvss.co`). Override with a dedicated review page (e.g. a Google
   Business "write a review" link) when you have one.
 - `BOOKING_URL` — where the rebooking button links. **Defaults to the site's services section**
   (`https://every1luvs.com/#services`), where booking happens.
