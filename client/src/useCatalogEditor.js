@@ -3,6 +3,34 @@ import {
   LIMITS, NONE_ID, PHOTO_TYPES, SECTIONS, diffCatalog, newItem, sameDocument, slugify, uniqueId, validateCatalog,
 } from './catalogEditorUtils';
 
+// Unsaved edits are mirrored to sessionStorage (this tab only) so they survive the editor being
+// unmounted — switching profile tabs, a page reload, or a dev hot-reload — instead of silently
+// vanishing. Tagged with the server revision they were made on; only restored onto that revision.
+const UNSAVED_KEY = 'e1l.catalogEditor.unsaved';
+
+function readUnsaved() {
+  try {
+    return JSON.parse(sessionStorage.getItem(UNSAVED_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function writeUnsaved(value) {
+  try {
+    if (value) sessionStorage.setItem(UNSAVED_KEY, JSON.stringify(value));
+    else sessionStorage.removeItem(UNSAVED_KEY);
+  } catch {
+    // Storage unavailable (private mode / quota): edits just aren't kept across reloads.
+  }
+}
+
+// The server revision local edits apply to: the draft's exact version, or the live catalog.
+function revisionOf(view) {
+  if (!view) return null;
+  return view.draft ? `draft:${view.draft.id}:${view.draft.version}` : `live:${view.published.id}`;
+}
+
 // File → base64 (without the data: prefix) for the JSON upload body.
 function readAsBase64(file) {
   return new Promise((resolve, reject) => {
@@ -37,32 +65,68 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
   // Per-service photo upload state, keyed `${sectionKey}:${index}`: { uploading, error }.
   const [photoState, setPhotoState] = useState({});
 
-  const apply = useCallback((next) => {
+  // Adopt a server view. With `restoreUnsaved`, edits kept from before the editor was unmounted are
+  // put back on top — but only if they were made on this exact revision; otherwise they'd silently
+  // overwrite someone else's newer changes, so they're dropped with a note instead.
+  const apply = useCallback((next, { restoreUnsaved = false } = {}) => {
     const content = next.draft ? next.draft.content : next.published.content;
+    let restored = null;
+    if (restoreUnsaved) {
+      const kept = readUnsaved();
+      if (kept && kept.revision === revisionOf(next) && !sameDocument(kept.working, content)) {
+        restored = kept.working;
+        setMessage({ type: 'success', text: 'Restored your unsaved changes.' });
+      } else if (kept && kept.revision !== revisionOf(next)) {
+        setMessage({ type: 'error', text: 'Your unsaved changes were dropped because the catalog was changed elsewhere since.' });
+      }
+    }
+    if (!restored) writeUnsaved(null);
     setView(next);
-    setWorking(content);
+    setWorking(restored || content);
     setBaseContent(content);
     setBasePublishedId(next.draft ? next.draft.basePublishedId : next.published.id);
     setConflict(false);
   }, []);
 
-  const fetchView = useCallback(async () => {
+  const fetchView = useCallback(async ({ restoreUnsaved = false, isCancelled = () => false } = {}) => {
     try {
-      apply(await apiRequest('/api/admin/catalog'));
+      const next = await apiRequest('/api/admin/catalog');
+      if (isCancelled()) return;
+      apply(next, { restoreUnsaved });
       setStatus('ready');
     } catch (error) {
+      if (isCancelled()) return;
       setMessage({ type: 'error', text: error.message });
       setStatus((prev) => (prev === 'ready' ? prev : 'error'));
     }
   }, [apiRequest, apply]);
 
   useEffect(() => {
-    // Data-loading effect: fetchView sets state only after the request resolves.
-    fetchView();
+    // Data-loading effect: fetchView sets state only after the request resolves. A load that
+    // finishes after this effect was torn down (unmount, or React dev's double-run) is ignored,
+    // so a late response can never overwrite edits made in the meantime.
+    let cancelled = false;
+    fetchView({ restoreUnsaved: true, isCancelled: () => cancelled });
+    return () => {
+      cancelled = true;
+    };
   }, [fetchView]);
 
   const issues = useMemo(() => validateCatalog(working), [working]);
   const dirty = Boolean(working) && !sameDocument(working, baseContent);
+
+  // Mirror unsaved edits to sessionStorage (see UNSAVED_KEY), and warn before closing the tab.
+  useEffect(() => {
+    if (!view) return undefined;
+    writeUnsaved(dirty ? { revision: revisionOf(view), working } : null);
+    if (!dirty) return undefined;
+    const warn = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty, view, working]);
   const hasDraft = Boolean(view?.draft);
   const liveIds = useMemo(() => {
     const ids = {};
@@ -104,6 +168,7 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
     if (!view.draft) {
       // Nothing saved yet — just drop the local edits.
       setWorking(baseContent);
+      writeUnsaved(null);
       return;
     }
     setBusy('discarding');
@@ -165,8 +230,10 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
     });
   }
 
+  // Explicitly replace local edits with the server's latest (the 409 recovery action).
   function loadLatest() {
     setMessage(null);
+    writeUnsaved(null);
     fetchView();
   }
 

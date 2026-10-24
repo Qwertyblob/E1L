@@ -76,6 +76,7 @@ beforeEach(() => {
 afterEach(() => {
   jest.restoreAllMocks();
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 describe('Admin catalog editor — drafts', () => {
@@ -159,6 +160,36 @@ describe('Admin catalog editor — drafts', () => {
     await userEvent.click(screen.getByRole('button', { name: '+ Add removal option' }));
     await waitFor(() => expect(field('REMOVAL', LIVE.REMOVAL.length, 'name')).toHaveFocus());
     delete window.HTMLElement.prototype.scrollIntoView;
+  });
+
+  test('unsaved edits survive switching profile tabs (the editor remounting)', async () => {
+    setupFetch([
+      { method: 'GET', path: '/api/admin/catalog', body: liveView() },
+      { method: 'GET', path: '/api/admin/bookings', body: { content: [], number: 0, totalPages: 0, totalElements: 0 } },
+      { method: 'GET', path: '/api/slots', body: { content: [], number: 0, totalPages: 0, totalElements: 0 } },
+    ]);
+    await gotoServicesTab();
+    await userEvent.click(screen.getByRole('button', { name: '+ Add service' }));
+    await userEvent.type(field('NAIL_SERVICES', LIVE.NAIL_SERVICES.length, 'name'), 'Gel Pedicure');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Services & Prices' }));
+
+    expect(await screen.findByText('Restored your unsaved changes.')).toBeInTheDocument();
+    expect(field('NAIL_SERVICES', LIVE.NAIL_SERVICES.length, 'name')).toHaveValue('Gel Pedicure');
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+  });
+
+  test('kept edits made on an older revision are not restored over newer server changes', async () => {
+    sessionStorage.setItem('e1l.catalogEditor.unsaved', JSON.stringify({
+      revision: 'live:0', working: withClassicPrice(99),
+    }));
+    setupFetch([{ method: 'GET', path: '/api/admin/catalog', body: liveView() }]);
+    await gotoServicesTab();
+
+    expect(screen.getByText(/unsaved changes were dropped/)).toBeInTheDocument();
+    expect(field('NAIL_SERVICES', 1, 'price')).toHaveValue(58);
+    expect(sessionStorage.getItem('e1l.catalogEditor.unsaved')).toBeNull();
   });
 
   test('a new service needs a picture before it can be saved', async () => {
