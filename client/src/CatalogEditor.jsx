@@ -1,5 +1,5 @@
-import { useCatalog } from './CatalogContext';
-import { LIMITS, NONE_ID, SECTIONS } from './catalogEditorUtils';
+import { catalogImageUrl, useCatalog } from './CatalogContext';
+import { LIMITS, NONE_ID, PHOTO_TYPES, SECTIONS } from './catalogEditorUtils';
 import { useCatalogEditor } from './useCatalogEditor';
 
 function formatWhen(iso) {
@@ -21,7 +21,39 @@ function Field({ id, label, error, hint, children }) {
   );
 }
 
-function CatalogItemCard({ section, item, index, count, isLive, issues, onChange, onMove, onRemove }) {
+// The landing-page photo for a service card: current picture (or a placeholder) + upload button.
+function PhotoField({ id, name, imageId, photo, error, onUpload }) {
+  const src = catalogImageUrl(imageId);
+  return (
+    <div className="catalog-field catalog-photo">
+      <span className="catalog-photo-label">Picture</span>
+      <div className="catalog-photo-row">
+        {src
+          ? <img alt={`${name} picture`} className="catalog-photo-thumb" src={src} />
+          : <div className="catalog-photo-thumb catalog-photo-thumb--empty">No picture yet</div>}
+        <label className="text-button catalog-photo-button" htmlFor={id}>
+          {photo?.uploading ? 'Uploading…' : src ? 'Change picture' : 'Add picture'}
+        </label>
+        <input
+          accept={PHOTO_TYPES.join(',')}
+          aria-describedby={error || photo?.error ? `${id}-error` : undefined}
+          aria-label={`${src ? 'Change' : 'Add'} picture for ${name}`}
+          className="catalog-photo-input"
+          disabled={photo?.uploading}
+          id={id}
+          onChange={(e) => { onUpload(e.target.files?.[0]); e.target.value = ''; }}
+          type="file"
+        />
+      </div>
+      <small className="catalog-field-hint">JPEG or PNG, up to 10 MB. Shown on the website once you publish.</small>
+      {(photo?.error || error) && (
+        <small className="catalog-field-error" id={`${id}-error`}>{photo?.error || error}</small>
+      )}
+    </div>
+  );
+}
+
+function CatalogItemCard({ section, item, index, count, isLive, issues, onChange, onMove, onRemove, photo, onUpload }) {
   const name = item.name || `New ${section.singular}`;
 
   // The free "none" option of nail art / removal is fixed (first, free, always shown).
@@ -78,6 +110,14 @@ function CatalogItemCard({ section, item, index, count, isLive, issues, onChange
 
         {section.kind === 'service' && (
           <>
+            <PhotoField
+              error={errorFor('imageId')}
+              id={fieldId('imageId')}
+              imageId={item.imageId}
+              name={name}
+              onUpload={onUpload}
+              photo={photo}
+            />
             <Field id={fieldId('label')} label="Tagline" error={errorFor('label')}>
               <input type="text" {...text('label', LIMITS.label)} />
             </Field>
@@ -275,6 +315,8 @@ export default function CatalogEditor({ apiRequest, requestConfirm }) {
                     onChange={(patch) => editor.updateItem(section.key, index, patch)}
                     onMove={(delta) => editor.moveItem(section.key, index, delta)}
                     onRemove={() => confirmDelete(section, item, index)}
+                    onUpload={(file) => editor.uploadPhoto(section.key, index, file)}
+                    photo={editor.photoState[`${section.key}:${index}`]}
                     section={section}
                   />
                 ))}

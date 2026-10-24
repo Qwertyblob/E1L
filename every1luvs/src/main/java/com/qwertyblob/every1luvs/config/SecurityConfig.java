@@ -97,6 +97,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/slots/available").permitAll()
                         // The live service catalog (names, prices, durations) the public site renders.
                         .requestMatchers(HttpMethod.GET, "/api/catalog").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/catalog/images/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/bookings").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/deposit-claims").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

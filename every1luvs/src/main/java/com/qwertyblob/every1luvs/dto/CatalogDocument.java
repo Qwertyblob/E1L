@@ -20,10 +20,20 @@ public record CatalogDocument(
         @JsonProperty("REPAIRS") List<RepairItem> repairs
 ) {
 
-    /** A bookable service. {@code price} is whole SGD; {@code durationMin} its appointment length. */
+    /**
+     * A bookable service. {@code price} is whole SGD; {@code durationMin} its appointment length;
+     * {@code imageId} its landing-page photo (a {@code tbl_catalog_images} id, served at
+     * /api/catalog/images/{id}) — required for every service (CatalogService checks it exists).
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ServiceItem(String id, String label, String name, String desc,
-                              Integer price, Integer durationMin, Boolean popular, Boolean hidden) {
+                              Integer price, Integer durationMin, Boolean popular, Boolean hidden,
+                              String imageId) {
+        public ServiceItem(String id, String label, String name, String desc,
+                           Integer price, Integer durationMin, Boolean popular, Boolean hidden) {
+            this(id, label, name, desc, price, durationMin, popular, hidden, null);
+        }
+
         public boolean hiddenFromCustomers() {
             return Boolean.TRUE.equals(hidden);
         }

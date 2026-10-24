@@ -3,9 +3,13 @@ package com.qwertyblob.every1luvs.service;
 import com.qwertyblob.every1luvs.dto.AdminCatalogResponse;
 import com.qwertyblob.every1luvs.dto.CatalogDocument;
 import com.qwertyblob.every1luvs.dto.CatalogDraftActionRequest;
+import com.qwertyblob.every1luvs.dto.CatalogImageResponse;
 import com.qwertyblob.every1luvs.dto.PublicCatalogResponse;
 import com.qwertyblob.every1luvs.dto.SaveCatalogDraftRequest;
+import com.qwertyblob.every1luvs.dto.UploadCatalogImageRequest;
+import com.qwertyblob.every1luvs.entity.CatalogImageEntity;
 import com.qwertyblob.every1luvs.entity.CatalogVersionEntity;
+import com.qwertyblob.every1luvs.repository.CatalogImageRepository;
 import com.qwertyblob.every1luvs.repository.CatalogVersionRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -23,8 +27,14 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.HexFormat;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -46,16 +56,30 @@ public class CatalogService {
 
     static final String SEED_RESOURCE = "/catalog/seed-services.json";
     static final String SEED_PUBLISHER = "seed";
+    // First-boot photos: a seed service's "seed-<name>" imageId maps to /catalog/images/<name>.jpg.
+    static final String SEED_IMAGE_PREFIX = "seed-";
+    private static final String SEED_IMAGE_DIR = "/catalog/images/";
+    // Service photos are re-encoded to JPEG with the longest side at most this many px (landing
+    // cards are ~400px wide; 1600 stays sharp on high-density screens and keeps rows small).
+    static final int PHOTO_MAX_EDGE = 1600;
+    // Raw upload cap (decoded bytes) — a high-res phone photo, before re-encoding shrinks it.
+    static final long MAX_UPLOAD_BYTES = 10L * 1024 * 1024;
+    private static final Set<String> UPLOAD_TYPES = Set.of("image/jpeg", "image/png");
 
     private static final Logger log = LoggerFactory.getLogger(CatalogService.class);
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final CatalogVersionRepository repository;
+    private final CatalogImageRepository imageRepository;
+    private final ImageSanitizer imageSanitizer;
     private final TransactionTemplate transactionTemplate;
     private final AtomicReference<BookingCatalog> live = new AtomicReference<>();
 
-    public CatalogService(CatalogVersionRepository repository, PlatformTransactionManager transactionManager) {
+    public CatalogService(CatalogVersionRepository repository, CatalogImageRepository imageRepository,
+                          ImageSanitizer imageSanitizer, PlatformTransactionManager transactionManager) {
         this.repository = repository;
+        this.imageRepository = imageRepository;
+        this.imageSanitizer = imageSanitizer;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -66,6 +90,7 @@ public class CatalogService {
      */
     @PostConstruct
     void init() {
+        ensureSeedImages();
         CatalogVersionEntity published;
         try {
             published = transactionTemplate.execute(status ->
@@ -124,6 +149,7 @@ public class CatalogService {
                 throw conflict("Another admin has already started a draft. Load the latest draft to continue.");
             }
             CatalogDocument document = CatalogValidator.validate(request.content());
+            requireServicePictures(document);
             draft = new CatalogVersionEntity();
             draft.setStatus(CatalogVersionEntity.DRAFT);
             draft.setBasePublishedId(published.getId());
@@ -140,6 +166,7 @@ public class CatalogService {
             published = repository.findByStatus(CatalogVersionEntity.PUBLISHED)
                     .orElseThrow(() -> new IllegalStateException("No PUBLISHED catalog row."));
             CatalogDocument document = CatalogValidator.validate(request.content());
+            requireServicePictures(document);
             draft.setContent(write(document));
             draft.setUpdatedBy(adminEmail);
             draft = repository.saveAndFlush(draft);
@@ -173,6 +200,7 @@ public class CatalogService {
                     + "Discard this draft and start again from the latest version.");
         }
         CatalogDocument document = CatalogValidator.validate(parse(draft));
+        requireServicePictures(document);
 
         published.setStatus(CatalogVersionEntity.SUPERSEDED);
         // Flush now so the one-PUBLISHED partial unique index is free before the draft takes it.
@@ -198,6 +226,108 @@ public class CatalogService {
     void install(BookingCatalog next) {
         live.accumulateAndGet(next, (installed, candidate) ->
                 installed == null || candidate.versionId() > installed.versionId() ? candidate : installed);
+    }
+
+    /**
+     * Store an admin-uploaded service photo: re-encoded (metadata stripped, JPEG, longest side
+     * {@value #PHOTO_MAX_EDGE}px) and saved under the SHA-256 of the stored bytes, so the same
+     * picture uploaded twice is stored once and an id's bytes never change. The returned id is set
+     * as a service's {@code imageId} in the draft; nothing is live until that draft is published.
+     */
+    @Transactional
+    public CatalogImageResponse uploadImage(UploadCatalogImageRequest request, String adminEmail) {
+        String contentType = request == null || request.contentType() == null
+                ? "" : request.contentType().toLowerCase(Locale.ROOT);
+        if (!UPLOAD_TYPES.contains(contentType) || request.data() == null || request.data().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Please upload a JPEG or PNG photo.");
+        }
+        if ((long) request.data().length() * 3 / 4 > MAX_UPLOAD_BYTES) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "That photo is too large (max 10 MB).");
+        }
+        SanitizedImage photo = imageSanitizer.sanitizeServicePhoto(request.data(), PHOTO_MAX_EDGE);
+        if (photo == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "That photo couldn't be read. Please upload a JPEG or PNG photo.");
+        }
+        String id = sha256Hex(photo.data());
+        if (!imageRepository.existsById(id)) {
+            CatalogImageEntity image = new CatalogImageEntity();
+            image.setId(id);
+            image.setContentType(photo.contentType());
+            image.setData(photo.data());
+            image.setCreatedBy(adminEmail);
+            imageRepository.save(image);
+        }
+        return new CatalogImageResponse(id);
+    }
+
+    /** A stored photo by id (public; ids are unguessable digests or fixed seed ids). */
+    @Transactional(readOnly = true)
+    public Optional<CatalogImageEntity> image(String id) {
+        if (id == null || !CatalogValidator.IMAGE_ID_PATTERN.matcher(id).matches()) {
+            return Optional.empty();
+        }
+        return imageRepository.findById(id);
+    }
+
+    // Every service needs a photo for its landing-page card, and it must be one that was uploaded.
+    private void requireServicePictures(CatalogDocument document) {
+        for (CatalogDocument.ServiceItem service : document.nailServices()) {
+            if (service.imageId() == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Services: \"" + service.name() + "\" needs a picture.");
+            }
+            if (!imageRepository.existsById(service.imageId())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Services: \"" + service.name() + "\" — its picture is missing. Upload it again.");
+            }
+        }
+    }
+
+    // Store the bundled first-boot photos the seed catalog refers to ("seed-<name>" →
+    // /catalog/images/<name>.jpg). Idempotent; runs on every startup so a database seeded before
+    // photos existed still gets them.
+    private void ensureSeedImages() {
+        for (CatalogDocument.ServiceItem service : loadSeedDocument().nailServices()) {
+            String id = service.imageId();
+            if (id == null || !id.startsWith(SEED_IMAGE_PREFIX)) {
+                continue;
+            }
+            try {
+                transactionTemplate.executeWithoutResult(status -> {
+                    if (imageRepository.existsById(id)) {
+                        return;
+                    }
+                    CatalogImageEntity image = new CatalogImageEntity();
+                    image.setId(id);
+                    image.setContentType("image/jpeg");
+                    image.setData(readSeedImage(id.substring(SEED_IMAGE_PREFIX.length())));
+                    image.setCreatedBy(SEED_PUBLISHER);
+                    imageRepository.saveAndFlush(image);
+                });
+            } catch (DataIntegrityViolationException e) {
+                // A concurrent startup stored it first — fine.
+            }
+        }
+    }
+
+    private static byte[] readSeedImage(String name) {
+        try (InputStream in = CatalogService.class.getResourceAsStream(SEED_IMAGE_DIR + name + ".jpg")) {
+            if (in == null) {
+                throw new IllegalStateException("Seed photo not found: " + SEED_IMAGE_DIR + name + ".jpg");
+            }
+            return in.readAllBytes();
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to read seed photo " + name, e);
+        }
+    }
+
+    private static String sha256Hex(byte[] data) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(data));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
     }
 
     /** The bundled first-boot catalog (also used by tests as a known-good document). */

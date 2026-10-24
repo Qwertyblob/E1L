@@ -74,6 +74,8 @@ class CatalogIntegrationTest {
     @Autowired private SlotRepository slotRepository;
     @Autowired private BookingRepository bookingRepository;
     @Autowired private CatalogVersionRepository catalogRepository;
+    @Autowired private com.qwertyblob.every1luvs.repository.CatalogImageRepository imageRepository;
+    @Autowired private ImageSanitizer imageSanitizer;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private MockMvc mockMvc;
 
@@ -238,7 +240,7 @@ class CatalogIntegrationTest {
         long rows = catalogRepository.count();
 
         // A fresh service against the same database = an app restart.
-        CatalogService restarted = new CatalogService(catalogRepository, transactionManager);
+        CatalogService restarted = new CatalogService(catalogRepository, imageRepository, imageSanitizer, transactionManager);
         restarted.init();
 
         assertThat(restarted.current().versionId()).isEqualTo(draft.id());
@@ -286,6 +288,17 @@ class CatalogIntegrationTest {
     }
 
     @Test
+    void seedPhotos_areStoredAndServedPublicly_withLongCaching() throws Exception {
+        mockMvc.perform(get("/api/catalog/images/seed-classic"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "image/jpeg"))
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("max-age=31536000")));
+        mockMvc.perform(get("/api/catalog/images/does-not-exist")).andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/admin/catalog/images").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().is4xxClientError()); // admin-only (and CSRF-protected)
+    }
+
+    @Test
     void adminCatalog_requiresAuthentication() throws Exception {
         mockMvc.perform(get("/api/admin/catalog")).andExpect(status().isUnauthorized());
     }
@@ -323,7 +336,7 @@ class CatalogIntegrationTest {
         List<CatalogDocument.ServiceItem> services = new ArrayList<>(seed.nailServices());
         CatalogDocument.ServiceItem classic = services.get(1);
         services.set(1, new CatalogDocument.ServiceItem(classic.id(), classic.label(), classic.name(), classic.desc(),
-                price, classic.durationMin(), classic.popular(), classic.hidden()));
+                price, classic.durationMin(), classic.popular(), classic.hidden(), classic.imageId()));
         return new CatalogDocument(services, seed.nailArt(), seed.removal(), seed.repairs());
     }
 

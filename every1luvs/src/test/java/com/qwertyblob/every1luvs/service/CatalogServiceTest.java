@@ -3,8 +3,12 @@ package com.qwertyblob.every1luvs.service;
 import com.qwertyblob.every1luvs.dto.AdminCatalogResponse;
 import com.qwertyblob.every1luvs.dto.CatalogDocument;
 import com.qwertyblob.every1luvs.dto.CatalogDraftActionRequest;
+import com.qwertyblob.every1luvs.dto.CatalogImageResponse;
 import com.qwertyblob.every1luvs.dto.SaveCatalogDraftRequest;
+import com.qwertyblob.every1luvs.dto.UploadCatalogImageRequest;
+import com.qwertyblob.every1luvs.entity.CatalogImageEntity;
 import com.qwertyblob.every1luvs.entity.CatalogVersionEntity;
+import com.qwertyblob.every1luvs.repository.CatalogImageRepository;
 import com.qwertyblob.every1luvs.repository.CatalogVersionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,6 +28,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -33,6 +38,8 @@ class CatalogServiceTest {
     private static final String ADMIN = "admin@example.com";
 
     @Mock CatalogVersionRepository repository;
+    @Mock CatalogImageRepository imageRepository;
+    @Mock ImageSanitizer imageSanitizer;
     @Mock PlatformTransactionManager transactionManager;
 
     private CatalogService catalogService;
@@ -40,9 +47,11 @@ class CatalogServiceTest {
 
     @BeforeEach
     void setUp() {
-        catalogService = new CatalogService(repository, transactionManager);
+        catalogService = new CatalogService(repository, imageRepository, imageSanitizer, transactionManager);
         lenient().when(repository.saveAndFlush(any(CatalogVersionEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        // Every photo referenced by a test catalog exists unless a test says otherwise.
+        lenient().when(imageRepository.existsById(any())).thenReturn(true);
     }
 
     // ─── startup ──────────────────────────────────────────────────────────────────
@@ -257,7 +266,7 @@ class CatalogServiceTest {
         List<CatalogDocument.ServiceItem> services = new ArrayList<>(seed.nailServices());
         CatalogDocument.ServiceItem express = services.get(0);
         services.set(0, new CatalogDocument.ServiceItem(express.id(), express.label(), express.name(),
-                express.desc(), -1, express.durationMin(), false, false)); // negative price
+                express.desc(), -1, express.durationMin(), false, false, express.imageId())); // negative price
         CatalogDocument invalid = new CatalogDocument(services, seed.nailArt(), seed.removal(), seed.repairs());
         when(repository.findByStatusForUpdate(CatalogVersionEntity.DRAFT)).thenReturn(Optional.of(draft(9L, 3L, 5L, invalid)));
         when(repository.findByStatusForUpdate(CatalogVersionEntity.PUBLISHED)).thenReturn(Optional.of(published(5L, seed)));
@@ -267,13 +276,70 @@ class CatalogServiceTest {
         assertThat(catalogService.current().versionId()).isEqualTo(5L);
     }
 
+    // ─── photos ───────────────────────────────────────────────────────────────────
+
+    @Test
+    void saveDraft_aServiceWithoutAPicture_is400() {
+        when(repository.findByStatusForUpdate(CatalogVersionEntity.PUBLISHED)).thenReturn(Optional.of(published(5L, seed)));
+        List<CatalogDocument.ServiceItem> services = new ArrayList<>(seed.nailServices());
+        services.add(new CatalogDocument.ServiceItem("gel-pedicure", null, "Gel Pedicure", null, 65, 60, false, false));
+        CatalogDocument noPicture = new CatalogDocument(services, seed.nailArt(), seed.removal(), seed.repairs());
+
+        var ex = catchThrowableOfType(() -> catalogService.saveDraft(
+                new SaveCatalogDraftRequest(null, null, 5L, noPicture), ADMIN), ResponseStatusException.class);
+
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getReason()).contains("\"Gel Pedicure\" needs a picture");
+        verify(repository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void publish_aServiceWhosePictureWasNeverUploaded_is400() {
+        catalogService.install(BookingCatalog.of(5L, seed));
+        when(imageRepository.existsById("seed-classic")).thenReturn(false);
+        when(repository.findByStatusForUpdate(CatalogVersionEntity.DRAFT)).thenReturn(Optional.of(draft(9L, 3L, 5L, seed)));
+        when(repository.findByStatusForUpdate(CatalogVersionEntity.PUBLISHED)).thenReturn(Optional.of(published(5L, seed)));
+
+        assertStatus(() -> catalogService.publish(new CatalogDraftActionRequest(9L, 3L), ADMIN), HttpStatus.BAD_REQUEST);
+        verify(repository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void uploadImage_storesTheSanitizedPhotoUnderItsDigest() {
+        byte[] cleaned = {1, 2, 3};
+        when(imageSanitizer.sanitizeServicePhoto("aGVsbG8=", CatalogService.PHOTO_MAX_EDGE))
+                .thenReturn(new SanitizedImage("photo.jpg", "image/jpeg", cleaned));
+        when(imageRepository.existsById(any())).thenReturn(false);
+
+        CatalogImageResponse response = catalogService.uploadImage(
+                new UploadCatalogImageRequest("image/png", "aGVsbG8="), ADMIN);
+
+        // SHA-256 of {1,2,3}
+        assertThat(response.id()).isEqualTo("039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81");
+        ArgumentCaptor<CatalogImageEntity> saved = ArgumentCaptor.forClass(CatalogImageEntity.class);
+        verify(imageRepository).save(saved.capture());
+        assertThat(saved.getValue().getData()).isEqualTo(cleaned);
+        assertThat(saved.getValue().getContentType()).isEqualTo("image/jpeg");
+        assertThat(saved.getValue().getCreatedBy()).isEqualTo(ADMIN);
+    }
+
+    @Test
+    void uploadImage_rejectsNonImagesAndUnreadablePhotos() {
+        assertStatus(() -> catalogService.uploadImage(new UploadCatalogImageRequest("image/gif", "aGVsbG8="), ADMIN),
+                HttpStatus.BAD_REQUEST);
+        when(imageSanitizer.sanitizeServicePhoto(any(), anyInt())).thenReturn(null);
+        assertStatus(() -> catalogService.uploadImage(new UploadCatalogImageRequest("image/jpeg", "bm90LWFuLWltYWdl"), ADMIN),
+                HttpStatus.BAD_REQUEST);
+        verify(imageRepository, never()).save(any());
+    }
+
     // ─── helpers ──────────────────────────────────────────────────────────────────
 
     private CatalogDocument withClassicPrice(int price) {
         List<CatalogDocument.ServiceItem> services = new ArrayList<>(seed.nailServices());
         CatalogDocument.ServiceItem classic = services.get(1);
         services.set(1, new CatalogDocument.ServiceItem(classic.id(), classic.label(), classic.name(), classic.desc(),
-                price, classic.durationMin(), classic.popular(), classic.hidden()));
+                price, classic.durationMin(), classic.popular(), classic.hidden(), classic.imageId()));
         return new CatalogDocument(services, seed.nailArt(), seed.removal(), seed.repairs());
     }
 
@@ -281,7 +347,7 @@ class CatalogServiceTest {
         List<CatalogDocument.ServiceItem> services = new ArrayList<>(seed.nailServices());
         CatalogDocument.ServiceItem classic = services.get(1);
         services.set(1, new CatalogDocument.ServiceItem(classic.id(), classic.label(), classic.name(), classic.desc(),
-                classic.price(), classic.durationMin(), classic.popular(), true));
+                classic.price(), classic.durationMin(), classic.popular(), true, classic.imageId()));
         return new CatalogDocument(services, seed.nailArt(), seed.removal(), seed.repairs());
     }
 

@@ -3,6 +3,7 @@
   "NAIL_SERVICES": [
     {
       "id": "express",
+      "imageId": "seed-express",
       "label": "Quick & Polished",
       "name": "Express Manicure",
       "desc": "A swift, efficient manicure with file and shape, cuticle tidy, and gel polish application. Perfect for a refresh.",
@@ -13,6 +14,7 @@
     },
     {
       "id": "classic",
+      "imageId": "seed-classic",
       "label": "The Everyday Essential",
       "name": "Classic Manicure",
       "desc": "Thorough nail prep, cuticle care, hand massage, and full gel polish application. Our most loved everyday service.",
@@ -23,6 +25,7 @@
     },
     {
       "id": "structured",
+      "imageId": "seed-structured",
       "label": "Built for Weak Nails",
       "name": "Structured Classic Manicure",
       "desc": "Perfect choice for people with weak nails and minimal growth. Includes gel polish, cuticle care, nail prep, and strengthening overlay.",
@@ -33,6 +36,7 @@
     },
     {
       "id": "apres",
+      "imageId": "seed-apres",
       "label": "Full Sculpted Extensions",
       "name": "Après Gel X Extensions",
       "desc": "Premium soft gel extension system applied over natural nails. Zero damage, instant length, and a flawless finish.",

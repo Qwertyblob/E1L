@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  NONE_ID, SECTIONS, diffCatalog, newItem, sameDocument, slugify, uniqueId, validateCatalog,
+  LIMITS, NONE_ID, PHOTO_TYPES, SECTIONS, diffCatalog, newItem, sameDocument, slugify, uniqueId, validateCatalog,
 } from './catalogEditorUtils';
+
+// File → base64 (without the data: prefix) for the JSON upload body.
+function readAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      resolve(dataUrl.slice(dataUrl.indexOf(',') + 1));
+    };
+    reader.onerror = () => reject(new Error('That photo could not be read. Please try another.'));
+    reader.readAsDataURL(file);
+  });
+}
 
 /**
  * State + server calls for the admin catalog editor. Mirrors useSlotBuilder: App's `apiRequest`
@@ -21,6 +34,8 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
   const [busy, setBusy] = useState(null); // saving | discarding | publishing | null
   const [message, setMessage] = useState(null); // { type: 'success' | 'error', text }
   const [conflict, setConflict] = useState(false);
+  // Per-service photo upload state, keyed `${sectionKey}:${index}`: { uploading, error }.
+  const [photoState, setPhotoState] = useState({});
 
   const apply = useCallback((next) => {
     const content = next.draft ? next.draft.content : next.published.content;
@@ -42,9 +57,7 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
   }, [apiRequest, apply]);
 
   useEffect(() => {
-    // Intentional data-loading effect: fetchView sets state only after the request resolves.
-    // react-hooks/set-state-in-effect can't see past the await.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // Data-loading effect: fetchView sets state only after the request resolves.
     fetchView();
   }, [fetchView]);
 
@@ -181,6 +194,33 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
     });
   }
 
+  // Upload a photo for a service card and point the item at it. The photo is stored straight away
+  // but only appears on the website once the draft that uses it is published.
+  async function uploadPhoto(sectionKey, index, file) {
+    const key = `${sectionKey}:${index}`;
+    if (!file) return;
+    if (!PHOTO_TYPES.includes(file.type)) {
+      setPhotoState((s) => ({ ...s, [key]: { error: 'Please choose a JPEG or PNG photo.' } }));
+      return;
+    }
+    if (file.size > LIMITS.photoBytes) {
+      setPhotoState((s) => ({ ...s, [key]: { error: 'That photo is too large (max 10 MB).' } }));
+      return;
+    }
+    setPhotoState((s) => ({ ...s, [key]: { uploading: true } }));
+    try {
+      const data = await readAsBase64(file);
+      const { id } = await apiRequest('/api/admin/catalog/images', {
+        method: 'POST',
+        body: JSON.stringify({ contentType: file.type, data }),
+      });
+      updateItem(sectionKey, index, { imageId: id });
+      setPhotoState((s) => ({ ...s, [key]: {} }));
+    } catch (error) {
+      setPhotoState((s) => ({ ...s, [key]: { error: error.message } }));
+    }
+  }
+
   // Delete an item from the draft (CatalogEditor confirms first for live items).
   function removeItem(sectionKey, index) {
     setWorking((doc) => ({ ...doc, [sectionKey]: doc[sectionKey].filter((_, i) => i !== index) }));
@@ -209,6 +249,8 @@ export function useCatalogEditor({ apiRequest, requestConfirm, onPublished }) {
     message,
     conflict,
     liveIds,
+    photoState,
+    uploadPhoto,
     saveDraft,
     discardDraft,
     reviewAndPublish,

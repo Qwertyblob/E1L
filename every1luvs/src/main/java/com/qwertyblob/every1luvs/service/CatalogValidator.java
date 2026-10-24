@@ -22,6 +22,8 @@ import java.util.regex.Pattern;
 final class CatalogValidator {
 
     static final Pattern ID_PATTERN = Pattern.compile("^[a-z0-9-]{1,40}$");
+    // Photo ids: "seed-<service>" for the first-boot photos, else a SHA-256 hex digest.
+    static final Pattern IMAGE_ID_PATTERN = Pattern.compile("^[a-z0-9-]{1,64}$");
     static final int MAX_NAME_LENGTH = 80;
     static final int MAX_LABEL_LENGTH = 80;
     static final int MAX_SUB_LENGTH = 80;
@@ -95,8 +97,14 @@ final class CatalogValidator {
             if (!hidden && duration <= 0) {
                 throw bad(where + " needs a duration of at least 1 minute.");
             }
+            // Presence/existence of the photo is checked by CatalogService (it needs the image
+            // table); here only its shape, so a bad id never reaches a URL.
+            String imageId = trimToNull(item.imageId());
+            if (imageId != null && !IMAGE_ID_PATTERN.matcher(imageId).matches()) {
+                throw bad(where + " has an invalid picture. Upload it again.");
+            }
             result.add(new CatalogDocument.ServiceItem(id, label, name, desc, price, duration,
-                    Boolean.TRUE.equals(item.popular()), hidden));
+                    Boolean.TRUE.equals(item.popular()), hidden, imageId));
         }
         return List.copyOf(result);
     }

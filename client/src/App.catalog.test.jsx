@@ -117,6 +117,7 @@ describe('Admin catalog editor — drafts', () => {
     setupFetch([
       { method: 'GET', path: '/api/admin/catalog', body: liveView() },
       { method: 'PUT', path: '/api/admin/catalog/draft', body: draftView(LIVE, 0) },
+      { method: 'POST', path: '/api/admin/catalog/images', body: { id: 'abc123' } },
     ]);
     await gotoServicesTab();
 
@@ -124,6 +125,8 @@ describe('Admin catalog editor — drafts', () => {
     const newIndex = LIVE.NAIL_SERVICES.length;
     await userEvent.type(field('NAIL_SERVICES', newIndex, 'name'), 'Gel Pédicure');
     await setNumber(field('NAIL_SERVICES', newIndex, 'price'), 65);
+    await userEvent.upload(field('NAIL_SERVICES', newIndex, 'imageId'), new File(['jpg'], 'gel.jpg', { type: 'image/jpeg' }));
+    expect(await screen.findByAltText('Gel Pédicure picture')).toHaveAttribute('src', '/api/catalog/images/abc123');
     // Hide Express (a live service): it stays in the document, flagged hidden.
     const express = screen.getByText('Express Manicure', { selector: '.catalog-item-title' }).closest('li');
     await userEvent.click(within(express).getByRole('checkbox', { name: 'Shown to customers' }));
@@ -131,9 +134,35 @@ describe('Admin catalog editor — drafts', () => {
 
     await waitFor(() => expect(callsTo('PUT', '/api/admin/catalog/draft')).toHaveLength(1));
     const { content } = bodyOf(callsTo('PUT', '/api/admin/catalog/draft')[0]);
-    expect(content.NAIL_SERVICES[newIndex]).toMatchObject({ id: 'gel-pedicure', name: 'Gel Pédicure', price: 65 });
+    expect(content.NAIL_SERVICES[newIndex]).toMatchObject({ id: 'gel-pedicure', name: 'Gel Pédicure', price: 65, imageId: 'abc123' });
+    const [, uploadOpts] = callsTo('POST', '/api/admin/catalog/images')[0];
+    expect(uploadOpts.headers['X-XSRF-TOKEN']).toBe('admin-tok');
+    expect(JSON.parse(uploadOpts.body)).toEqual({ contentType: 'image/jpeg', data: 'anBn' }); // base64 "jpg"
     expect(content.NAIL_SERVICES[0]).toMatchObject({ id: 'express', hidden: true });
     expect(content.NAIL_SERVICES).toHaveLength(LIVE.NAIL_SERVICES.length + 1);
+  });
+
+  test('a new service needs a picture before it can be saved', async () => {
+    setupFetch([{ method: 'GET', path: '/api/admin/catalog', body: liveView() }]);
+    await gotoServicesTab();
+
+    await userEvent.click(screen.getByRole('button', { name: '+ Add service' }));
+    await userEvent.type(field('NAIL_SERVICES', LIVE.NAIL_SERVICES.length, 'name'), 'Gel Pedicure');
+
+    expect(screen.getByText('A picture is required.')).toBeInTheDocument();
+    expect(screen.getByText('No picture yet')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
+  });
+
+  test('changing a picture rejects non-photos before uploading', async () => {
+    setupFetch([{ method: 'GET', path: '/api/admin/catalog', body: liveView() }]);
+    await gotoServicesTab();
+
+    await userEvent.upload(field('NAIL_SERVICES', 1, 'imageId'), new File(['gif'], 'x.gif', { type: 'image/gif' }),
+      { applyAccept: false });
+
+    expect(await screen.findByText('Please choose a JPEG or PNG photo.')).toBeInTheDocument();
+    expect(callsTo('POST', '/api/admin/catalog/images')).toHaveLength(0);
   });
 
   test('invalid fields are flagged inline and block saving', async () => {
@@ -252,15 +281,30 @@ describe('diffCatalog', () => {
     draft.NAIL_ART.push({ id: 'tier4', name: 'Tier 4 — Bespoke', sub: null, price: 70, durationMin: 90, hidden: false });
     draft.REPAIRS[0].priceNote = 'S$4/nail';
     draft.REMOVAL = draft.REMOVAL.filter((r) => r.id !== 'other-ext');
+    draft.NAIL_SERVICES[2].imageId = 'abc123';
 
     expect(diffCatalog(LIVE, draft)).toEqual([
       'Express Manicure: hidden from customers',
       'Classic Manicure: S$58 → S$62',
       'Classic Manicure: 45 min → 50 min',
+      'Structured Classic Manicure: picture changed',
       'Nail art: new — Tier 4 — Bespoke (S$70, 90 min)',
       'Removal: deleted — Extensions',
       'Nail Fix: price note "S$3/nail" → "S$4/nail"',
     ]);
+  });
+});
+
+describe('Landing page photos', () => {
+  test('service cards show the uploaded photo, falling back to the bundled one if it fails to load', async () => {
+    localStorage.clear();
+    setupFetch();
+    render(<App />);
+
+    const photo = await screen.findByAltText('Classic Manicure', { selector: '.service-card-photo' });
+    expect(photo).toHaveAttribute('src', '/api/catalog/images/seed-classic');
+    photo.dispatchEvent(new Event('error'));
+    await waitFor(() => expect(photo.getAttribute('src')).not.toContain('/api/catalog/images/'));
   });
 });
 

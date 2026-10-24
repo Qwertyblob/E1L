@@ -236,4 +236,34 @@ class ImageSanitizerTest {
         assertThat(cornerName(r, 3, 36)).isEqualTo("BLUE(BL)");
         assertThat(cornerName(r, 3, 3)).isEqualTo("YELLOW(BR)");
     }
+
+    @Test
+    void servicePhoto_isDownscaledToTheMaxEdge_andAlwaysJpeg() throws IOException {
+        BufferedImage big = new BufferedImage(3000, 2000, BufferedImage.TYPE_INT_ARGB); // transparent PNG
+
+        SanitizedImage photo = sanitizer.sanitizeServicePhoto(encode(big, "png"), 1600);
+
+        assertThat(photo).isNotNull();
+        assertThat(photo.contentType()).isEqualTo("image/jpeg");
+        BufferedImage out = ImageIO.read(new ByteArrayInputStream(photo.data()));
+        assertThat(out.getWidth()).isEqualTo(1600);
+        assertThat(out.getHeight()).isEqualTo(1067);
+        // Transparency is flattened onto white, not JPEG's default black.
+        assertThat(new Color(out.getRGB(10, 10)).getRed()).isGreaterThan(240);
+    }
+
+    @Test
+    void servicePhoto_smallerThanTheMaxEdge_isNotUpscaled() throws IOException {
+        SanitizedImage photo = sanitizer.sanitizeServicePhoto(encode(new BufferedImage(400, 300, BufferedImage.TYPE_INT_RGB), "jpg"), 1600);
+
+        BufferedImage out = ImageIO.read(new ByteArrayInputStream(photo.data()));
+        assertThat(out.getWidth()).isEqualTo(400);
+        assertThat(out.getHeight()).isEqualTo(300);
+    }
+
+    @Test
+    void servicePhoto_rejectsNonImageBytes() {
+        String text = Base64.getEncoder().encodeToString("not an image".getBytes(StandardCharsets.UTF_8));
+        assertThat(sanitizer.sanitizeServicePhoto(text, 1600)).isNull();
+    }
 }

@@ -2202,3 +2202,36 @@ input:focus {
   .catalog-actions { width: 100%; }
   .catalog-actions .primary-button { flex: 1 1 auto; }
 }
+
+/* Service photo field in the catalog editor. */
+.catalog-photo { grid-column: 1 / -1; }
+.catalog-photo-label { color: var(--muted); font-size: 0.8rem; font-weight: 800; }
+.catalog-photo-row { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; }
+.catalog-photo-thumb {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  height: 90px;
+  object-fit: cover;
+  width: 120px;
+}
+.catalog-photo-thumb--empty {
+  align-items: center;
+  background: var(--paper);
+  color: var(--muted);
+  display: flex;
+  font-size: 0.8rem;
+  justify-content: center;
+  text-align: center;
+}
+.catalog-photo-button { cursor: pointer; }
+/* Visually hidden but focusable/clickable via its <label>. */
+.catalog-photo-input {
+  height: 1px;
+  min-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  width: 1px;
+}
+.catalog-photo-row:focus-within .catalog-photo-button { outline: 2px solid var(--teal); outline-offset: 2px; }

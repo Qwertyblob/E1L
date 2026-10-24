@@ -21,7 +21,11 @@ export const LIMITS = {
   // column that stores a booking's joined repair names.
   visibleRepairs: 10,
   joinedRepairNames: 255,
+  // Raw photo upload cap (CatalogService.MAX_UPLOAD_BYTES); the server re-encodes and shrinks it.
+  photoBytes: 10 * 1024 * 1024,
 };
+
+export const PHOTO_TYPES = ['image/jpeg', 'image/png'];
 
 // The free default option of nail art / removal: always first, free, visible, and its name is fixed
 // (booking emails recognise it), so the editor shows it read-only.
@@ -49,7 +53,7 @@ export function uniqueId(base, takenIds) {
 
 export function newItem(kind, id) {
   if (kind === 'service') {
-    return { id, label: null, name: '', desc: null, price: 0, durationMin: 30, popular: false, hidden: false };
+    return { id, label: null, name: '', desc: null, price: 0, durationMin: 30, popular: false, hidden: false, imageId: null };
   }
   if (kind === 'repair') {
     return { id, name: '', sub: null, desc: null, priceNote: null, hidden: false };
@@ -98,6 +102,7 @@ export function validateCatalog(doc) {
         }
         return;
       }
+      if (kind === 'service' && !item.imageId) add('imageId', 'A picture is required.');
       if (!isWholeNumber(item.price, LIMITS.price)) add('price', `Price must be a whole number from 0 to ${LIMITS.price}.`);
       if (!isWholeNumber(item.durationMin, LIMITS.duration)) {
         add('durationMin', `Duration must be a whole number of minutes from 0 to ${LIMITS.duration}.`);
@@ -152,6 +157,7 @@ export function diffCatalog(live, draft) {
       if (Boolean(old.hidden) !== Boolean(item.hidden)) {
         lines.push(item.hidden ? `${name}: hidden from customers` : `${name}: visible to customers again`);
       }
+      if (kind === 'service' && (old.imageId || null) !== (item.imageId || null)) lines.push(`${name}: picture changed`);
       if (kind === 'service' && Boolean(old.popular) !== Boolean(item.popular)) {
         lines.push(item.popular ? `${name}: marked Popular` : `${name}: no longer marked Popular`);
       }

@@ -7,18 +7,32 @@ import imgStructuredClassic from './assets/images/Structured_Classic_Manicure.jp
 import imgApresGelX from './assets/images/Apres_Extension.jpg';
 import logoBlack from './assets/images/E1LN_Logo/E1LN_Black_Long_Logo.png';
 import logoWhite from './assets/images/E1LN_Logo/E1LN_White_Long_Logo.png';
-import { useCatalog } from './CatalogContext';
+import { catalogImageUrl, useCatalog } from './CatalogContext';
 import { formatServiceDuration } from './services';
 
-// Photos for the original services. Services the admin adds later have no dedicated photo, so they
-// fall back to the studio background shot.
-const serviceImages = {
-  express: imgExpressManicure,
-  classic: imgClassicManicure,
-  structured: imgStructuredClassic,
-  apres: imgApresGelX,
+// Service photos are uploaded by the admin and served from /api/catalog/images. If one can't load
+// (backend down and nginx has no cached copy yet), fall back to the bundled original for the seed
+// photos, else the studio background shot, so a card never shows a broken image.
+const BUNDLED_SEED_PHOTOS = {
+  'seed-express': imgExpressManicure,
+  'seed-classic': imgClassicManicure,
+  'seed-structured': imgStructuredClassic,
+  'seed-apres': imgApresGelX,
 };
 const DEFAULT_SERVICE_IMAGE = imgBackground;
+
+function bundledPhotoFor(svc) {
+  return BUNDLED_SEED_PHOTOS[svc.imageId] || DEFAULT_SERVICE_IMAGE;
+}
+
+function fallBackToBundledPhoto(svc) {
+  return (e) => {
+    const img = e.currentTarget;
+    if (img.dataset.fellBack) return; // only once, so a broken fallback can't loop
+    img.dataset.fellBack = 'true';
+    img.src = bundledPhotoFor(svc);
+  };
+}
 
 function ValueIcon({ children }) {
   return (
@@ -176,7 +190,12 @@ function LandingView({
           {NAIL_SERVICES.map((svc) => (
             <div className="service-card" key={svc.id}>
               <div className="service-card-image-wrapper">
-                <img alt={svc.name} className="service-card-photo" src={serviceImages[svc.id] || DEFAULT_SERVICE_IMAGE} />
+                <img
+                  alt={svc.name}
+                  className="service-card-photo"
+                  onError={fallBackToBundledPhoto(svc)}
+                  src={catalogImageUrl(svc.imageId) || bundledPhotoFor(svc)}
+                />
                 {svc.popular && <span className="popular-badge">Popular</span>}
               </div>
               <div className="service-card-body">

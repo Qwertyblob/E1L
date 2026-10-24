@@ -14,6 +14,7 @@ import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageInputStream;
 import javax.imageio.stream.ImageOutputStream;
 import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
@@ -116,7 +117,40 @@ public class ImageSanitizer {
         }
     }
 
+    /**
+     * Sanitize one admin-uploaded service photo for the website: same decode/re-encode safety as
+     * booking attachments, then scaled down so its longest side is at most {@code maxEdge} px and
+     * always written as JPEG (photos; keeps stored/served bytes small). Returns null if the bytes
+     * aren't a bounded JPEG/PNG, or if every sanitize slot stays busy.
+     */
+    public SanitizedImage sanitizeServicePhoto(String base64, int maxEdge) {
+        if (base64 == null || base64.isBlank()) {
+            return null;
+        }
+        boolean acquired;
+        try {
+            acquired = slots.tryAcquire(ACQUIRE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+        if (!acquired) {
+            logger.warn("Skipping service photo sanitization: all {} slot(s) busy.", maxConcurrent);
+            return null;
+        }
+        try {
+            return sanitizeOne(base64, 0, maxEdge);
+        } finally {
+            slots.release();
+        }
+    }
+
     private SanitizedImage sanitizeOne(String base64, int index) {
+        return sanitizeOne(base64, index, 0);
+    }
+
+    // maxEdge > 0: downscale to fit and always emit JPEG (service photos); 0: keep size and format.
+    private SanitizedImage sanitizeOne(String base64, int index, int maxEdge) {
         byte[] raw;
         try {
             raw = Base64.getDecoder().decode(base64);
@@ -159,6 +193,9 @@ public class ImageSanitizer {
                 if (format.equals("JPEG")) {
                     image = applyOrientation(image, readJpegOrientation(raw));
                 }
+                if (maxEdge > 0) {
+                    return reencode(fitWithin(image, maxEdge), "JPEG", index);
+                }
                 return reencode(image, format, index);
             } finally {
                 reader.dispose();
@@ -197,6 +234,28 @@ public class ImageSanitizer {
             writer.dispose();
         }
         return new SanitizedImage("inspo-" + (index + 1) + ".jpg", "image/jpeg", baos.toByteArray());
+    }
+
+    // Scale down (never up) so the longest side is at most maxEdge, with bilinear smoothing. Always
+    // draws onto a fresh opaque canvas, so PNG transparency becomes white rather than JPEG black.
+    private BufferedImage fitWithin(BufferedImage image, int maxEdge) {
+        int w = image.getWidth();
+        int h = image.getHeight();
+        double scale = Math.min(1.0, (double) maxEdge / Math.max(w, h));
+        int nw = Math.max(1, (int) Math.round(w * scale));
+        int nh = Math.max(1, (int) Math.round(h * scale));
+        BufferedImage dst = new BufferedImage(nw, nh, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = dst.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            g.setColor(java.awt.Color.WHITE); // flatten any PNG transparency onto white
+            g.fillRect(0, 0, nw, nh);
+            g.drawImage(image, 0, 0, nw, nh, null);
+        } finally {
+            g.dispose();
+        }
+        return dst;
     }
 
     /**

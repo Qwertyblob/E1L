@@ -101,6 +101,12 @@ export function CatalogProvider({ children, initial = null }) {
   return <CatalogContext.Provider value={value}>{children}</CatalogContext.Provider>;
 }
 
+// URL of a service photo (a catalog service's imageId). Served by the backend and cached by nginx.
+// eslint-disable-next-line react-refresh/only-export-components
+export function catalogImageUrl(imageId) {
+  return imageId ? `${API_BASE_URL}/api/catalog/images/${encodeURIComponent(imageId)}` : null;
+}
+
 // eslint-disable-next-line react-refresh/only-export-components
 export function useCatalog() {
   const value = useContext(CatalogContext);
